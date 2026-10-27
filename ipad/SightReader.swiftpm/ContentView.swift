@@ -3,7 +3,7 @@ import WebKit
 
 struct ContentView: View {
     @StateObject private var bridge = WebBridge()
-    @AppStorage("serverAddress") private var address = "http://192.168.1.20:5173"
+    @AppStorage("serverAddress") private var address = "http://192.168.1.162:5173"
     @State private var showBar = true
 
     var body: some View {

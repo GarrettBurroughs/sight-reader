@@ -5,7 +5,7 @@ Milestone 1 from the design doc: prove that notes from your MIDI keyboard reach 
 ```
 sight-reader/
   web/    Web client (Vite + TypeScript). Runs on your PC.
-  ipad/   Swift files for the iPad shell. Pasted into Swift Playgrounds.
+  ipad/   iPad shell: SightReader.swiftpm, a Swift Playgrounds app project.
 ```
 
 ## 1. Run the web page on your PC
@@ -42,21 +42,23 @@ Quick test without the iPad: open `http://localhost:5173` in Chrome on the PC. P
 ## 2. Set up the iPad (one time)
 
 1. Install **Swift Playgrounds** from the App Store (free; needs iPadOS 15.2 or newer, recent versions want newer).
-2. Open it, tap **+ App** (under "New") to create a blank app. Name it `SightReader`.
-3. Open the project. Replace the contents of `MyApp.swift` and `ContentView.swift` with the files in `ipad/`.
-4. Add two new Swift files with the **+** button in the sidebar: `MIDIManager.swift` and `WebBridge.swift`, and paste in those files.
-   - Easiest way to move the code: put the `ipad` folder in OneDrive, iCloud for Windows, or email it to yourself, then copy from the Files app.
-5. Tap **App Settings** (the app icon in the sidebar) → **Capabilities** → **+** → **Local Network**. Give it a purpose string like "Load the practice app from my PC." This lets the app reach your PC over Wi-Fi.
-6. Connect the keyboard: USB-C (a USB-B to USB-C cable or adapter for most keyboards) or Bluetooth MIDI.
-7. Tap **Run** (▶). When iPadOS asks to find devices on your local network, tap **Allow**.
-8. In the address bar at the top, type the Network address from step 1 and tap **Go**.
+2. On the PC, build the project zip and drop it in OneDrive:
+   ```bash
+   ipad/package.sh /mnt/c/Users/garre/OneDrive/SightReader
+   ```
+   (With no argument it writes `ipad/build/SightReader.swiftpm.zip`; email or AirDrop works too.)
+3. On the iPad, open the **Files** app, find `SightReader.swiftpm.zip`, and tap it to unzip. Tap the resulting `SightReader` project to open it in Swift Playgrounds. The Local Network permission is already declared in `Package.swift`.
+4. If Playgrounds asks you to sign in to set a team for the app, use your Apple account.
+5. Connect the keyboard: USB-C (a USB-B to USB-C cable or adapter for most keyboards) or Bluetooth MIDI.
+6. Tap **Run** (▶). When iPadOS asks to find devices on your local network, tap **Allow**.
+7. The address bar at the top defaults to `http://192.168.1.162:5173`. If your PC's address differs, type the Network address from step 1 and tap **Go**.
 
 Play a few notes. You should see the note names, the on-screen keyboard light up, and a log of events tagged `ipad`.
 
 ## 3. Day-to-day workflow
 
 - Edit files in `web/` on your PC. Saving reloads the page on the iPad automatically.
-- The Swift shell should rarely change. When it does, paste the new file into Swift Playgrounds and run again.
+- The Swift shell should rarely change. When it does, run `ipad/package.sh` again and reopen the new copy (delete the old one in Playgrounds first).
 - The address you typed is remembered between launches.
 
 ## Troubleshooting
