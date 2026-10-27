@@ -20,7 +20,7 @@ struct ContentView: View {
                     Button { bridge.reload() } label: { Image(systemName: "arrow.clockwise") }
                     Text(bridge.devices.isEmpty ? "No keyboard" : bridge.devices.joined(separator: ", "))
                         .font(.caption)
-                        .foregroundStyle(bridge.devices.isEmpty ? .secondary : .green)
+                        .foregroundStyle(bridge.devices.isEmpty ? Color.secondary : Color.green)
                         .lineLimit(1)
                 }
                 .padding(.horizontal)
