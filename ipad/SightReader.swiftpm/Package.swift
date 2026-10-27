@@ -17,7 +17,6 @@ let package = Package(
             bundleIdentifier: "com.garrettburroughs.SightReader",
             displayVersion: "1.0",
             bundleVersion: "1",
-            appIcon: .placeholder(icon: .music),
             accentColor: .presetColor(.blue),
             supportedDeviceFamilies: [
                 .pad
