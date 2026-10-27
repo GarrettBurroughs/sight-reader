@@ -1,0 +1,107 @@
+:root {
+  --bg: #f7f5f0;
+  --ink: #1d1b18;
+  --quiet: #6f6a61;
+  --line: #d8d3c8;
+  --accent: #2f6fde;
+  --ok: #2e8b57;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #181715;
+    --ink: #efece6;
+    --quiet: #a29c91;
+    --line: #3a3732;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: max(16px, env(safe-area-inset-top)) 24px 24px;
+  background: var(--bg);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+header { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+h1 { font-size: 22px; margin: 0; }
+#status { color: var(--quiet); font-size: 14px; }
+#status.ok { color: var(--ok); }
+
+main { display: grid; gap: 24px; margin-top: 24px; }
+
+.label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--quiet);
+  margin-bottom: 6px;
+}
+
+#held {
+  font-size: 56px;
+  font-weight: 650;
+  min-height: 68px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Piano ---- */
+#piano {
+  --w: calc(100% / var(--whites));
+  --bw: calc(var(--w) * 0.6);
+  position: relative;
+  height: 160px;
+  width: 100%;
+}
+
+.key {
+  position: absolute;
+  top: 0;
+  border-radius: 0 0 4px 4px;
+  transition: background 40ms;
+}
+
+.key.white {
+  width: var(--w);
+  height: 100%;
+  background: #fff;
+  border: 1px solid #bdb7ab;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 6px;
+  font-size: 10px;
+  color: #8a8478;
+}
+
+.key.black {
+  width: var(--bw);
+  height: 62%;
+  background: #222;
+  z-index: 1;
+}
+
+.key.down { background: var(--accent) !important; color: #fff; }
+
+/* ---- Log ---- */
+#log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-family: ui-monospace, "Cascadia Mono", Menlo, monospace;
+  font-size: 14px;
+  max-height: 260px;
+  overflow: hidden;
+}
+
+#log li { padding: 2px 0; white-space: pre; }
+#log li.off { color: var(--quiet); }
+
+footer { margin-top: 24px; font-size: 13px; color: var(--quiet); }
+code { font-size: 12px; }

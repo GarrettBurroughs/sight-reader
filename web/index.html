@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>MIDI Hello World</title>
+  </head>
+  <body>
+    <header>
+      <h1>MIDI Hello World</h1>
+      <div id="status">Waiting for input…</div>
+    </header>
+
+    <main>
+      <section class="held">
+        <div class="label">Notes held</div>
+        <div id="held">—</div>
+      </section>
+
+      <section>
+        <div id="piano"></div>
+      </section>
+
+      <section class="log">
+        <div class="label">Recent events</div>
+        <ol id="log"></ol>
+      </section>
+    </main>
+
+    <footer>
+      Sources: iPad shell (<code>window.onMidi</code>), Web MIDI in desktop Chrome, or your computer keyboard (A W S E D F T G Y H U J K).
+    </footer>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
