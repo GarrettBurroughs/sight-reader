@@ -22,7 +22,7 @@ Full design doc: https://claude.ai/code/artifact/a8d32fed-dbec-4b2d-97e0-8aba3e1
 
 ## Milestones
 
-1. ✅ MIDI proof: shell + page showing each note pressed (this repo's current state; Swift side not yet confirmed on device)
+1. ✅ MIDI proof: shell + page showing each note pressed (confirmed working on the iPad with the MIDI keyboard)
 2. One MusicXML score rendered with OSMD, playable in wait mode
 3. Tempo mode with scoring
 4. Library pipeline v0 over PDMX
@@ -32,6 +32,6 @@ Full design doc: https://claude.ai/code/artifact/a8d32fed-dbec-4b2d-97e0-8aba3e1
 
 ## Constraints
 
-- Free Apple account, Swift Playgrounds on the iPad (no Mac). Pure Swift only in `ipad/`, no C/C++ packages. Swift code can't be compiled on the PC; the user pastes it into Swift Playgrounds and reports errors.
+- Free Apple account, Swift Playgrounds on the iPad (no Mac). Pure Swift only in `ipad/`, no C/C++ packages. Swift code can't be compiled on the PC; `ipad/package.sh` zips `ipad/SightReader.swiftpm` for the user to open in Swift Playgrounds, and they report errors back. Small fixes they can make by hand on the iPad.
 - Dev happens in WSL2: give bash commands for project work. Use PowerShell only for Windows-side setup (`.wslconfig`, firewall).
 - WSL must use `networkingMode=mirrored` in `%UserProfile%\.wslconfig`, plus a Hyper-V firewall rule for port 5173; otherwise Vite's Network address is a WSL-internal 172.x IP the iPad can't reach.
