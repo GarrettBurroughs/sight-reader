@@ -16,14 +16,14 @@ Full design doc: https://claude.ai/code/artifact/a8d32fed-dbec-4b2d-97e0-8aba3e1
 
 - `pipeline/` (not yet built): Python + music21 batch job. Filter PDMX to solo piano, normalize to .mxl, cut 8–16 bar excerpts, compute difficulty features, grade 1–9 (Henle-style scale), export SQLite catalog + files. Also generates simple exercises for levels 1–3.
 - `server/` (not yet built): FastAPI + SQLite, home network only. Endpoints: `/api/next`, `/api/excerpts/{id}`, `/scores/{id}.mxl`, `/api/sessions`, `/api/progress`, `/api/library`. Tracks a decimal player level per mode, nudged after each attempt.
-- `web/`: TypeScript + Vite. Will render with OpenSheetMusicDisplay. All input arrives through `onNote` in `web/src/midi.ts` (iPad bridge, Web MIDI, or computer-keyboard fallback).
+- `web/`: TypeScript + Vite, renders with OpenSheetMusicDisplay (`score.ts`); wait-mode matching in `waitMode.ts` (vitest: `npm test`). All input arrives through `onNote` in `web/src/midi.ts` (iPad bridge, Web MIDI, or computer-keyboard fallback).
   - **Wait mode:** advance only when the held notes match the expected set (chords in any order).
   - **Tempo mode:** count-in, metronome, fixed BPM, ±100 ms timing window, separate note and timing scores, latency calibration.
 
 ## Milestones
 
 1. ✅ MIDI proof: shell + page showing each note pressed (confirmed working on the iPad with the MIDI keyboard)
-2. One MusicXML score rendered with OSMD, playable in wait mode
+2. ✅ One MusicXML score rendered with OSMD, playable in wait mode (test score: `web/public/scores/minuet-in-g.musicxml`)
 3. Tempo mode with scoring
 4. Library pipeline v0 over PDMX
 5. Adaptive practice (`/api/next`, saved attempts, moving levels)
