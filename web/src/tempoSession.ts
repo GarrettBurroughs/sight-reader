@@ -67,10 +67,10 @@ export class TempoSession implements Session {
 
   private tick = () => {
     const now = performance.now() - this.start;
-    // Show each step from the moment it can be played.
+    // Move the cursor on the beat, in step with the clicks you hear.
     const reach = this.scorer.reach;
     let target = this.shownStep;
-    while (target + 1 < this.steps.length && this.steps[target + 1].beat * this.beatMs - reach <= now) target++;
+    while (target + 1 < this.steps.length && this.steps[target + 1].beat * this.beatMs <= now) target++;
     if (target > this.shownStep) {
       this.shownStep = target;
       this.score.seek(this.steps[target].beat);
