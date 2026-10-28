@@ -10,10 +10,13 @@ lives in server/data/app.sqlite; the excerpt library (read-only) comes from pipe
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import random
+import re
 import sqlite3
+import zipfile
 import sys
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -22,7 +25,7 @@ from typing import Literal
 
 import anyio
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -126,6 +129,9 @@ class AttemptIn(BaseModel):
 
 
 READY_WAIT_SECONDS = 25  # how long a request waits for the database while an instance starts
+IPAD_PROJECT = Path(os.environ.get("SIGHTREADER_IPAD", ROOT / "ipad" / "SightReader.swiftpm"))
+# The shell's remembered address starts as this default; downloads point it at the site they came from.
+DEFAULT_ADDRESS = re.compile(r'(@AppStorage\("serverAddress"\) private var address = ")[^"]*(")')
 
 
 def create_app(app_db: Path | None = None, library_dir: Path | None = None, license_only: bool | None = None,
@@ -184,6 +190,22 @@ def create_app(app_db: Path | None = None, library_dir: Path | None = None, lice
         return await call_next(request)
 
     auth.install(app)  # added last, so it runs first
+
+    @app.get("/api/ipad-app.zip")
+    def ipad_app(request: Request):
+        """The Swift Playgrounds project, preset to open this site. Open the zip on the iPad (Files app)."""
+        site = str(request.base_url).rstrip("/")
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            for f in sorted(IPAD_PROJECT.rglob("*")):
+                if not f.is_file() or ":" in f.name or f.name == ".DS_Store":
+                    continue
+                data = f.read_text()
+                if f.name == "ContentView.swift":
+                    data = DEFAULT_ADDRESS.sub(rf"\g<1>{site}\g<2>", data)
+                z.writestr(f"SightReader.swiftpm/{f.relative_to(IPAD_PROJECT)}", data)
+        return Response(buf.getvalue(), media_type="application/zip",
+                        headers={"Content-Disposition": 'attachment; filename="SightReader.swiftpm.zip"'})
 
     @app.get("/api/health")
     def health():

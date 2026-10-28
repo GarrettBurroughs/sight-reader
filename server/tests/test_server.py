@@ -124,3 +124,15 @@ def test_length_choice(client):
     assert full["excerpt"]["kind"] == "full" and full["excerpt"]["id"] == "p1-full"
     short = client.get("/api/next", params={"player_id": p["id"], "mode": "wait", "grade": 3}).json()
     assert short["excerpt"]["kind"] == "excerpt"  # excerpts unless asked otherwise
+
+
+def test_ipad_app_download_points_at_this_site(client):
+    import io
+    import zipfile
+    r = client.get("/api/ipad-app.zip")
+    assert r.headers["content-type"] == "application/zip"
+    z = zipfile.ZipFile(io.BytesIO(r.content))
+    names = set(z.namelist())
+    assert {"SightReader.swiftpm/Package.swift", "SightReader.swiftpm/ContentView.swift"} <= names
+    view = z.read("SightReader.swiftpm/ContentView.swift").decode()
+    assert 'private var address = "http://testserver"' in view

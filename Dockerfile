@@ -23,12 +23,14 @@ RUN pip install --no-cache-dir -r server/requirements.txt
 COPY build/library/ library/
 COPY pipeline/*.py pipeline/
 COPY server/*.py server/
+COPY ipad/SightReader.swiftpm/ ipad/SightReader.swiftpm/
 COPY --from=web /web/dist/ web/
 
 ARG VERSION=dev
 ENV SIGHTREADER_DB=/data/app.sqlite \
     SIGHTREADER_LIBRARY=/app/library \
     SIGHTREADER_STATIC=/app/web \
+    SIGHTREADER_IPAD=/app/ipad/SightReader.swiftpm \
     SIGHTREADER_SECURE_COOKIE=1 \
     SIGHTREADER_VERSION=${VERSION} \
     PYTHONUNBUFFERED=1

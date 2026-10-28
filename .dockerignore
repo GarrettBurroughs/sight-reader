@@ -5,5 +5,5 @@
 web/dist
 pipeline/data
 server/data
-ipad
+ipad/build
 *.log

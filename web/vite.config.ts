@@ -7,8 +7,9 @@ export default defineConfig({
     host: true,
     port: 5173,
     strictPort: true,
-    // The API server only listens locally; the iPad reaches it through here.
-    proxy: { "/api": "http://127.0.0.1:8000" },
+    // The API server only listens locally; the iPad reaches it through here. Keep the Host header
+    // so the API sees the address the browser used (the iPad app download is preset to it).
+    proxy: { "/api": { target: "http://127.0.0.1:8000", changeOrigin: false } },
   },
   build: {
     rollupOptions: {

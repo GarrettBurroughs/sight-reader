@@ -1,73 +1,90 @@
-# Sight-Reading Trainer — MIDI Hello World
+# Sight-Reading Trainer
 
-Milestone 1 from the design doc: prove that notes from your MIDI keyboard reach a web page running on the iPad, served live from your PC.
+Personal app for learning to sight-read piano music on an iPad with a MIDI keyboard. Music comes from PDMX (public-domain MuseScore scores), cut into graded excerpts, sections and full pieces, plus generated beginner exercises. Your level moves up and down as you play.
+
+## Links
+
+| | Prod | Staging |
+| --- | --- | --- |
+| Practice | https://sight-reader-prod-2utjigd64a-ue.a.run.app | https://sight-reader-staging-2utjigd64a-ue.a.run.app |
+| Admin panel | [/admin.html](https://sight-reader-prod-2utjigd64a-ue.a.run.app/admin.html) | [/admin.html](https://sight-reader-staging-2utjigd64a-ue.a.run.app/admin.html) |
+| iPad app (Swift Playgrounds project) | [Download](https://sight-reader-prod-2utjigd64a-ue.a.run.app/api/ipad-app.zip) | [Download](https://sight-reader-staging-2utjigd64a-ue.a.run.app/api/ipad-app.zip) |
+| Health | [/api/health](https://sight-reader-prod-2utjigd64a-ue.a.run.app/api/health) | [/api/health](https://sight-reader-staging-2utjigd64a-ue.a.run.app/api/health) |
+
+Each environment has its own password and its own player data. Deploys: [GitHub Actions](https://github.com/GarrettBurroughs/sight-reader/actions) · Cloud Run console: [services](https://console.cloud.google.com/run?project=gburroughs)
 
 ```
 sight-reader/
-  web/       Web client (Vite + TypeScript). Runs on your PC.
-  pipeline/  Python (standard library only): builds the graded excerpt library from PDMX.
-  server/    FastAPI + SQLite: serves excerpts, records attempts, tracks player levels.
-  dev.sh     Starts the API server and the web dev server together.
-  deploy/    GCP deployment scripts (Cloud Run); .github/workflows/ runs them.
-  ipad/   iPad shell: SightReader.swiftpm, a Swift Playgrounds app project.
+  web/       Practice page and admin panel (Vite + TypeScript, OpenSheetMusicDisplay)
+  server/    API (FastAPI + SQLite): picks music, records attempts, tracks levels, login
+  pipeline/  Builds the graded music library from PDMX (Python, standard library only)
+  ipad/      iPad shell: SightReader.swiftpm, a Swift Playgrounds app that forwards MIDI into the page
+  deploy/    GCP scripts (Cloud Run); .github/workflows/ runs them
+  dev.sh     Local development: API + web dev server
 ```
 
-## 1. Run the web page on your PC
+## Set up an iPad
 
-Needs Node.js 20.19 or newer. Run it in WSL2:
+1. Install **Swift Playgrounds** from the App Store.
+2. In **Safari** on the iPad, open the prod (or staging) site, log in, and tap **iPad app** at the top right. (Downloads don't work inside the iPad app itself, so use Safari.) The project you get is already set to open the site you downloaded it from.
+3. Open the **Files** app → Downloads, tap `SightReader.swiftpm.zip` to unzip, then tap the `SightReader` project to open it in Swift Playgrounds.
+4. If Playgrounds asks for a team, sign in with your Apple account.
+5. Connect the keyboard (USB-C, or Bluetooth MIDI) and tap **Run** (▶). Log in once; the app remembers it for a year.
+
+**Updating the app** (only needed when `ipad/` changes, which is rare): download it again the same way, delete the old project in Playgrounds, and open the new one. The address you last used is remembered either way; you can also type another one in the address bar at the top.
+
+## Using it
+
+- **Wait / Tempo.** Wait mode moves on when you hold the right notes (chords in any order). Tempo mode plays a count-in and metronome at the BPM you set and scores notes and timing (±100 ms) separately. Run **Calibrate** once per device to measure input and audio delay.
+- **Music menu.** **Auto** picks something you haven't played near your level for the current mode. The whole part of a level is the grade and the fraction is how far into that grade's difficulty to aim; picks vary within ±0.2 and never repeat a piece from your last 15. You can also pick a fixed grade, or the built-in test piece (not saved).
+- **Length: 8 bars / 16 bars / Full piece.** Longer music is graded by its hardest 8-bar passage. Levels are shared across lengths.
+- **Hands: Both / Right / Left.** One-hand practice greys out the other staff and has its own levels (starting a grade above hands together), so drills don't inflate your main level. Hands-together runs record which hand slipped.
+- **Levels.** Every finished run moves that mode's level toward getting about 85% right: up to +0.3 when you do better, down to −0.5 when you do worse.
+- **Admin panel.** Browse and filter the library (by grade, length, source, license), open anything to see it rendered with a breakdown of why it got its grade, play it, and manage players: levels, attempt history, and which hand slips.
+
+## Local development
+
+Everything runs in WSL2. One-time setup:
 
 ```bash
-cd ~/dev/sight-reader/web
-npm install
-npm run dev
+cd ~/dev/sight-reader/web && npm install
+cd ~/dev/sight-reader
+python3 -m venv --without-pip server/.venv   # this system Python lacks ensurepip; borrow the system pip
+pip3 --python server/.venv/bin/python install -r server/requirements-dev.txt
 ```
 
-Vite prints a **Network** address, e.g. `http://192.168.1.20:5173`. Write it down; the iPad needs it.
+Then:
 
-**WSL networking (one time):** WSL's default NAT mode gives it an internal `172.x` address the iPad can't reach. Create `%UserProfile%\.wslconfig` with:
+```bash
+cd ~/dev/sight-reader && ./dev.sh
+```
+
+This starts the API on `127.0.0.1:8000` and Vite on port 5173, which forwards `/api` to the API. Open `http://localhost:5173` in Chrome (Web MIDI works with the keyboard plugged into the PC; or use the keys A W S E D F T G Y H U J K). There's no password locally, player data is in `server/data/app.sqlite`, and saving a file reloads the page. To try it on the iPad, type `http://<pc-ip>:5173` into the app's address bar (or download the app from that address, as above).
+
+**Letting the iPad reach WSL (one time):** WSL's default NAT mode gives it an internal `172.x` address. Create `%UserProfile%\.wslconfig` with
 
 ```
 [wsl2]
 networkingMode=mirrored
 ```
 
-then, in an admin PowerShell, run `wsl --shutdown` and allow the port through the Hyper-V firewall:
+then in an admin PowerShell run `wsl --shutdown` and open the port in the Hyper-V firewall:
 
 ```powershell
 New-NetFirewallHyperVRule -Name Vite5173 -DisplayName "Vite dev 5173" -Direction Inbound -VMCreatorId '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -Protocol TCP -LocalPorts 5173
 ```
 
-Afterwards Vite lists your PC's Wi-Fi address (`192.168.x.x`) as a Network address.
+**Tests:**
 
-Quick test without the iPad: open `http://localhost:5173` in Chrome on the PC. Plug the keyboard into the PC, or press A W S E D F T G Y H U J K on the computer keyboard.
+```bash
+cd ~/dev/sight-reader/web && npm test
+cd ~/dev/sight-reader && server/.venv/bin/python -m pytest server/tests
+cd ~/dev/sight-reader/pipeline && python3 -m unittest discover -s tests
+```
 
-**Windows firewall:** the first time, Windows asks whether Node.js may accept connections. Allow it on **Private networks**. If you missed the prompt, the iPad will fail to connect; fix it under Windows Security → Firewall → Allow an app → Node.js → tick Private.
+## The music library (pipeline)
 
-## 2. Set up the iPad (one time)
-
-1. Install **Swift Playgrounds** from the App Store (free; needs iPadOS 15.2 or newer, recent versions want newer).
-2. On the PC, build the project zip and drop it in OneDrive:
-   ```bash
-   ipad/package.sh /mnt/c/Users/garre/OneDrive/SightReader
-   ```
-   (With no argument it writes `ipad/build/SightReader.swiftpm.zip`; email or AirDrop works too.)
-3. On the iPad, open the **Files** app, find `SightReader.swiftpm.zip`, and tap it to unzip. Tap the resulting `SightReader` project to open it in Swift Playgrounds. The Local Network permission is already declared in `Package.swift`.
-4. If Playgrounds asks you to sign in to set a team for the app, use your Apple account.
-5. Connect the keyboard: USB-C (a USB-B to USB-C cable or adapter for most keyboards) or Bluetooth MIDI.
-6. Tap **Run** (▶). When iPadOS asks to find devices on your local network, tap **Allow**.
-7. The address bar at the top defaults to `http://192.168.1.162:5173`. If your PC's address differs, type the Network address from step 1 and tap **Go**.
-
-Play a few notes. You should see the note names, the on-screen keyboard light up, and a log of events tagged `ipad`.
-
-## 3. Day-to-day workflow
-
-- Run `./dev.sh`, then edit files in `web/` on your PC. Saving reloads the page on the iPad automatically.
-- The Swift shell should rarely change. When it does, run `ipad/package.sh` again and reopen the new copy (delete the old one in Playgrounds first).
-- The address you typed is remembered between launches.
-
-## 4. Build the music library (pipeline)
-
-Turns PDMX (public-domain MusicXML from MuseScore) into graded 8-bar piano excerpts. Python 3.10+, no packages to install. Everything lands in `pipeline/data/` (git-ignored).
+Built locally from PDMX into `pipeline/data/` (git-ignored); takes about 3.5 minutes on 16 cores.
 
 ```bash
 cd ~/dev/sight-reader/pipeline
@@ -75,85 +92,56 @@ mkdir -p data/raw data/pdmx && cd data/raw
 for f in PDMX.csv subset_paths.tar.gz mxl.tar.gz; do curl -L -C - -o "$f" "https://zenodo.org/api/records/15571083/files/$f/content"; done
 tar xzf mxl.tar.gz -C ../pdmx && tar xzf subset_paths.tar.gz -C ../pdmx
 cd ../..
-python3 catalog.py                 # all solo piano scores; add --no-license-conflict-only to skip flagged ones
-python3 -m unittest discover -s tests
+python3 catalog.py      # add --no-license-conflict-only to skip scores PDMX flags
+python3 anchors.py      # how well-known pieces grade, as a sanity check
 ```
 
 What `catalog.py` does:
 
 1. **Selects** PDMX rows with one piano track, valid and deduplicated (PDMX keeps the best of many uploads of the same piece).
-2. **Keeps solo piano** that really is: one part, two staves (treble/bass clefs), both hands playing.
-3. **Cuts up to 4 excerpts of 8 bars** per piece, on 8-bar boundaries, skipping windows with volta endings, D.S./coda jumps, multi-bar rests, meter changes, mostly-empty bars, or bars that don't add up. Also cuts up to 3 **16-bar sections**, and keeps the **full piece** when it can be played straight through (up to 160 bars; plain repeat signs are played once; no first/second endings, D.S./coda, multi-bar rests or meter changes). Sections and full pieces are graded by their **hardest 8-bar passage** (checked every 4 bars).
-4. **Measures difficulty** (`features.py`): note density, left-hand busyness, chords and stretches, leaps, shortest note value, syncopation, tuplets, accidentals, key signature, ledger lines, voices per hand, tempo when marked.
-5. **Generated beginner exercises** (`generate.py`, 250 per stage, added to the same library as `source = 'generated'`): six stages, each adding one idea: hands taking turns on steps; skips, G major and 3/4; melody over held left-hand notes; a moving left hand and minor keys; eighths and dotted rhythms; two-note left-hand chords. Each follows an I–IV–V plan in 4 + 4 bars (often restating the opening), stays in a five-finger position with the starting finger marked, and ends on the tonic. They're graded by the same formula and all land in grade 1, below most PDMX music. `python3 generate.py --per-stage 20` writes a preview set to `data/exercises-preview/`.
-6. **Grades 1–9** with fixed cutoffs on the difficulty score, fitted so well-known pieces land near their usual Henle level (`python3 anchors.py` prints the check), and writes `data/library/library.sqlite` plus one `.mxl` per excerpt. Each piece keeps its `no_license_conflict` flag for filtering.
+2. **Keeps real solo piano:** one part, two staves (treble/bass clefs), both hands playing.
+3. **Cuts** up to 4 **8-bar excerpts** and up to 3 **16-bar sections** per piece, skipping passages with first/second endings, D.S./coda jumps, multi-bar rests, meter changes, mostly-empty bars, or bars that don't add up. Keeps the **full piece** when it can be played straight through (up to 160 bars; repeat signs are played once).
+4. **Measures difficulty** (`features.py`): note density, left-hand busyness, chords and stretches, leaps, shortest note value, syncopation, tuplets, accidentals, key signature, ledger lines, voices per hand, rhythmic variety, tempo when marked. Sections and full pieces take the score of their hardest 8-bar passage.
+5. **Adds generated beginner exercises** (`generate.py`): six stages, from hands taking turns on steps to two-note left-hand chords, each following an I–IV–V plan in 4 + 4 bars, in a five-finger position with the starting finger marked. They all land in grade 1, below most PDMX music.
+6. **Grades 1–9** with fixed cutoffs fitted so well-known pieces land near their usual Henle level, and writes `data/library/library.sqlite` plus one `.mxl` per item. It builds into a side folder and swaps it in, so a running server isn't disturbed. Ids stay the same across rebuilds, so saved attempts keep pointing at the same music.
 
-## 5. Run the server and admin panel
+To ship a rebuilt library: `deploy/publish-library.sh`, commit `library.version`, push (staging), then `deploy/promote.sh`.
 
-One-time setup (this system Python lacks `ensurepip`, so the venv borrows the system pip):
-
-```bash
-cd ~/dev/sight-reader
-python3 -m venv --without-pip server/.venv
-pip3 --python server/.venv/bin/python install -r server/requirements.txt
-```
-
-Then, every time, instead of `npm run dev`:
-
-```bash
-cd ~/dev/sight-reader && ./dev.sh
-```
-
-This starts the API on `127.0.0.1:8000` (local only) and Vite on port 5173; Vite forwards `/api` to the API, so the iPad still only needs `http://<pc-ip>:5173`. Player data is in `server/data/app.sqlite` (git-ignored); the library is read from `pipeline/data/library/`. Set `SIGHTREADER_LICENSE_ONLY=1` to serve only scores without a license conflict.
-
-- **Practice page:** the music menu defaults to **Auto**, which asks the server for an unplayed excerpt near your level for the current mode. The whole part of the level is the grade and the fraction is how far through that grade's difficulty range to aim (level 1.0 gets the first generated exercises, 1.9 the hardest grade-1 pieces); each pick aims within ±0.2 of the level for variety, and never repeats a piece from your last 15. Every finished run is saved and nudges that mode's level: above 85% moves it up (at most +0.3), below moves it down (at most −0.5). Pick a fixed grade or the test piece from the same menu; test-piece runs aren't saved.
-- **Length menu (8 bars / 16 bars / Full piece):** what Auto and the grade picks serve. Levels are shared across lengths; a long piece counts as one attempt, graded by its hardest passage.
-- **Hands switch (Both / Right / Left):** one-hand practice expects only that hand's notes and greys out the other staff. It serves pieces where that hand has at least two notes a bar, and keeps its own level per hand and mode (starting one grade above your hands-together level), so drills don't inflate the hands-together level. Hands-together runs record wrong notes (and tempo-mode misses) per hand; the admin player page totals them under "Which hand slips".
-- **Admin panel** (`/admin.html`, or the Admin link): browse and filter the library, open any excerpt to see it rendered with its grade breakdown and attempts, play it, and manage players (levels, names, full attempt history, delete).
-- Tests: `server/.venv/bin/python -m pytest server/tests`.
-
-## 6. Cloud deployment (GCP)
+## Deployment (GCP project `gburroughs`, us-east1)
 
 ```
- push to main ──► GitHub Actions: tests ─► build image ─► Artifact Registry ─► Cloud Run: sight-reader-staging
- deploy/promote.sh ──► same image (by digest, no rebuild) ──────────────────► Cloud Run: sight-reader-prod
-```
-
-- **One container per environment** serves the web app, the API and the excerpt library (baked in). Cloud Run scales it to zero when idle; the first request after a pause takes a few seconds.
-- **Player data** is SQLite on the instance, replicated continuously to that environment's bucket by Litestream (`server/persistence.py`). Each service runs at most one instance. During a deploy the new instance waits on a lock in the bucket until the old one has done its final sync, so no saved run is lost; API calls are held (up to 25 s) meanwhile.
-- **Login**: one password per environment (Secret Manager); a year-long cookie keeps the iPad logged in. `/api/health` stays open for checks. Locally there's no password.
-- **The library** is published as a versioned tarball (`deploy/publish-library.sh` → `library.version`, commit it); CI bakes the named version into the image, so promoting also promotes the library.
-- **GitHub → GCP** uses Workload Identity Federation: only this repo's workflows can deploy, with no stored keys.
-
-One-time setup (needs `gcloud` and `gh` logged in; read the script first, it lists everything it creates):
-
-```bash
-deploy/bootstrap.sh          # APIs, image repo, buckets, service accounts, secrets (asks for passwords), WIF, GitHub variables
-deploy/publish-library.sh    # upload the current library, write library.version
-git add library.version && git commit -m "Publish library" && git push   # first staging deploy
+ git push (main) ──► GitHub Actions: tests ─► build image ─► Artifact Registry ─► Cloud Run: sight-reader-staging
+ deploy/promote.sh ──► the same image (by digest, no rebuild) ─────────────────► Cloud Run: sight-reader-prod
 ```
 
 Day to day:
 
 ```bash
-git push                     # tests, then deploy to staging (watch: gh run watch)
-deploy/promote.sh            # staging's image -> prod
+git push                     # tests, then deploy to staging (about 2.5 minutes; watch with: gh run watch)
+deploy/promote.sh            # send staging's image to prod
 ```
 
-Rolling back: promote an older image by re-running an older Staging workflow run and then promoting, or pick a previous revision in the Cloud Run console. After a pipeline change, re-run `catalog.py`, `publish-library.sh`, commit `library.version`, push.
+- **One container per environment** serves the practice page, admin panel, API, iPad app download and the library (baked in). Cloud Run scales it to zero when idle, so the first request after a pause takes a few seconds.
+- **Player data** is SQLite on the instance, replicated continuously to that environment's bucket by Litestream (`server/persistence.py`). Each service runs at most one instance. During a deploy the new instance waits on a lock in the bucket until the old one has done its final sync, so no saved run is lost; API calls are held (up to 25 s) meanwhile.
+- **Login:** one password per environment (Secret Manager), remembered by a year-long cookie. `/api/health` stays open for checks.
+- **The library** is a versioned tarball in `gs://gburroughs-sight-reader-library`, pinned by `library.version`, so promoting also promotes the library.
+- **GitHub → GCP** uses Workload Identity Federation: only this repo's workflows can deploy, with no stored keys.
+- **Rolling back:** pick a previous revision in the Cloud Run console, or re-run an older Staging workflow run and promote it.
+- **First-time setup** (already done): `deploy/bootstrap.sh` creates the APIs, image repo, buckets, service accounts, secrets (it asks for the passwords), Workload Identity Federation and GitHub variables. It's safe to re-run. Names are in `deploy/config.sh`.
 
 ## Troubleshooting
 
 | Symptom | Likely cause |
 | --- | --- |
-| "Couldn't reach the PC" | Dev server not running, wrong IP, different Wi-Fi network, Windows firewall, or Local Network permission denied (iPad Settings → Privacy & Security → Local Network) |
+| iPad app shows "Couldn't reach the PC" | Wrong address in the app's address bar, no internet, or (for local dev) `./dev.sh` not running / different Wi-Fi / firewall / Local Network permission denied (iPad Settings → Privacy & Security → Local Network) |
 | Page loads, says "No keyboard" | Keyboard not powered or not class-compliant; try a different cable. Bluetooth keyboards may need pairing in a MIDI app first |
-| Status says "Web MIDI ready" on the iPad | The page didn't detect the shell; make sure `WebBridge.swift` is the version from this folder |
-| Page works in Chrome on the PC but not on the iPad | Almost always network: IP, firewall, or permission |
+| Status says "Web MIDI ready" on the iPad | The page didn't detect the shell; download the iPad app again |
+| First load after a while is slow | Cloud Run starting from zero; a few seconds |
+| "Starting up; try again in a moment" | A deploy is handing over the database; wait a few seconds |
 | Notes stick on after release | Report it; some keyboards send note-on with velocity 0, which is handled, but others may differ |
 
-## How it fits together
+## How the pieces fit
 
-- The shell (`MIDIManager.swift`) listens to every MIDI source with CoreMIDI and reconnects when a device is plugged in.
-- `WebBridge.swift` turns each note into a call to `window.onMidi({type, note, velocity, t})` in the page.
-- The page (`web/src/midi.ts`) accepts notes from that bridge, from Web MIDI in desktop browsers, or from the computer keyboard, and treats them all the same. Later milestones build on that one `onNote` handler.
+- The iPad shell (`MIDIManager.swift`) listens to every MIDI source with CoreMIDI; `WebBridge.swift` turns each note into a call to `window.onMidi({type, note, velocity, t})` in the page.
+- The page (`web/src/midi.ts`) accepts notes from that bridge, from Web MIDI in desktop browsers, or from the computer keyboard, and treats them all the same. `score.ts` renders MusicXML with OpenSheetMusicDisplay; `waitSession.ts` / `tempoSession.ts` run the two modes.
+- The server picks music from the library by level and records each attempt; the pipeline builds that library offline.
