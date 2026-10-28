@@ -78,7 +78,8 @@ input:disabled { opacity: 0.6; }
 .modes { display: inline-flex; }
 .modes button { border-radius: 0; }
 .modes button:first-child { border-radius: 8px 0 0 8px; }
-.modes button:last-child { border-radius: 0 8px 8px 0; margin-left: -1px; }
+.modes button + button { margin-left: -1px; }
+.modes button:last-child { border-radius: 0 8px 8px 0; }
 .modes button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
 
 #go { min-width: 6em; }

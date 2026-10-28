@@ -3,7 +3,7 @@
 
 import type { AttemptResult } from "./api";
 import { Clicks } from "./audio";
-import { toMidi, type Score, type TimedStep } from "./score";
+import { handOf, toMidi, type Hand, type Score, type TimedStep } from "./score";
 import { MISS_COLOR, OK_COLOR, SLIP_COLOR, type Session, type UI } from "./session";
 import { TempoScorer, type Expected, type Judgement } from "./tempoMode";
 
@@ -20,6 +20,7 @@ export class TempoSession implements Session {
   private start: number; // performance.now() time of the first beat of the piece
   private expectedBySteps: Expected[][]; // the scorer's notes, grouped by step
   private shownStep = -1;
+  private wrongBy: Record<Hand, number> = { right: 0, left: 0 };
   private raf = 0;
   private done = false;
 
@@ -33,7 +34,10 @@ export class TempoSession implements Session {
     this.beatMs = 60_000 / bpm;
     this.steps = score.timeline();
     const expected: Expected[] = this.steps.flatMap((s, step) =>
-      s.midi.map((midi) => ({ step, midi, time: s.beat * this.beatMs })),
+      s.midi.map((midi) => {
+        const hand = handOf(s.notes.find((n) => toMidi(n) === midi)!);
+        return { step, midi, time: s.beat * this.beatMs, hand };
+      }),
     );
     // A press can be matched up to half a beat away; beyond that it's a wrong note.
     this.scorer = new TempoScorer(expected, TIMING_WINDOW_MS, Math.min(this.beatMs / 2, 400));
@@ -53,8 +57,12 @@ export class TempoSession implements Session {
 
   noteOn(note: number, t: number) {
     if (this.done) return;
-    const result = this.scorer.noteOn(note, t - this.start - this.latencyMs);
-    if (result.kind === "wrong") this.ui.wrong(note);
+    const time = t - this.start - this.latencyMs;
+    const result = this.scorer.noteOn(note, time);
+    if (result.kind === "wrong") {
+      this.ui.wrong(note);
+      this.wrongBy[this.nearestHand(note, time)]++;
+    }
     else this.judged(result.note);
     this.render();
   }
@@ -97,6 +105,15 @@ export class TempoSession implements Session {
     );
   }
 
+  /** Whose slip was it? Among notes due around now, the one closest in pitch; else the closest in time. */
+  private nearestHand(note: number, time: number): Hand {
+    const all = this.scorer.expected;
+    const near = all.filter((e) => Math.abs(e.time - time) <= this.scorer.reach);
+    const pool = near.length ? near : all;
+    const dist = (e: Expected) => (near.length ? Math.abs(e.midi - note) : Math.abs(e.time - time));
+    return pool.reduce((a, b) => (dist(b) < dist(a) ? b : a)).hand ?? "right";
+  }
+
   private render(now = performance.now() - this.start) {
     const s = this.scorer.summary();
     if (now < 0) {
@@ -123,8 +140,15 @@ export class TempoSession implements Session {
         `Timing ${Math.round(s.timingPct)}% within ±${TIMING_WINDOW_MS} ms, on average ${tendency}.`,
       "ok",
     );
+    const missedBy: Record<Hand, number> = { right: 0, left: 0 };
+    for (const [e, r] of this.scorer.results) if (r.judgement === "missed") missedBy[e.hand ?? "right"]++;
     this.onFinish({
       mode: "tempo",
+      hands: this.score.hands,
+      wrong_right: this.wrongBy.right,
+      wrong_left: this.wrongBy.left,
+      missed_right: missedBy.right,
+      missed_left: missedBy.left,
       bpm: this.bpm,
       duration_ms: Math.round(performance.now() - this.start),
       total: s.total,

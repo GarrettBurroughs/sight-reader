@@ -74,7 +74,8 @@ def test_practice_flow(client):
     assert again.json()["excerpt"]["piece_id"] != ex["piece_id"]
 
     players = client.get("/api/players").json()
-    assert players[0]["levels"] == {"wait": 3.3, "tempo": 3.0} and players[0]["attempts"] == 1
+    lv = players[0]["levels"]
+    assert (lv["wait"], lv["tempo"], lv["wait:left"]) == (3.3, 3.0, 4.3) and players[0]["attempts"] == 1
     assert client.get(f"/api/players/{p['id']}/attempts").json()[0]["level_after"] == 3.3
 
 
@@ -102,3 +103,31 @@ def test_admin_edits(client):
     assert r["levels"]["tempo"] == 9.0  # clamped
     assert client.delete(f"/api/players/{p['id']}").status_code == 204
     assert client.get("/api/players").json() == []
+
+
+def test_one_hand_levels(client):
+    p = client.post("/api/players", json={"name": "C", "level": 3}).json()
+    assert p["levels"]["tempo:right"] == 4.0  # head start over hands together
+    nxt = client.get("/api/next", params={"player_id": p["id"], "mode": "wait", "hands": "left", "grade": 4}).json()
+    r = client.post("/api/attempts", json={"player_id": p["id"], "excerpt_id": nxt["excerpt"]["id"], "mode": "wait",
+                                           "hands": "left", "steps": 20, "wrong": 0, "wrong_left": 0}).json()
+    assert (r["level_before"], r["level_after"]) == (4.0, 4.3)
+    lv = client.get("/api/players").json()[0]["levels"]
+    assert (lv["wait"], lv["wait:left"], lv["wait:right"]) == (3.0, 4.3, 4.0)  # hands-together level untouched
+    a = client.get(f"/api/players/{p['id']}/attempts").json()[0]
+    assert a["hands"] == "left" and a["wrong_left"] == 0
+    assert client.patch(f"/api/players/{p['id']}", json={"levels": {"wait:both": 2}}).status_code == 422
+
+
+def test_migrates_old_attempts_table(tmp_path, client):
+    """A database from before the hands columns gets them added on startup."""
+    old = tmp_path / "old.sqlite"
+    db = sqlite3.connect(old)
+    db.execute("CREATE TABLE attempts (id INTEGER PRIMARY KEY, player_id INTEGER, excerpt_id TEXT, piece_id TEXT, "
+               "grade INTEGER, mode TEXT, finished_at TEXT, bpm INTEGER, duration_ms INTEGER, wrong INTEGER, "
+               "note_pct REAL, timing_pct REAL, performance REAL, level_before REAL, level_after REAL, details TEXT)")
+    db.commit()
+    db.close()
+    create_app(old, tmp_path / "library")
+    cols = {r[1] for r in sqlite3.connect(old).execute("PRAGMA table_info(attempts)")}
+    assert {"hands", "wrong_left", "missed_right"} <= cols

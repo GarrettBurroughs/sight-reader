@@ -1,5 +1,5 @@
 import "./style.css";
-import { api, type AttemptResult, type Excerpt, type Player } from "./api";
+import { api, levelKey, type AttemptResult, type Excerpt, type Hands, type Player } from "./api";
 import { unlockAudio } from "./audio";
 import { Calibration } from "./calibrate";
 import { isBlackKey, noteName, onDevices, onNote, startInput } from "./midi";
@@ -21,6 +21,7 @@ const pianoEl = $<HTMLDivElement>("#piano");
 const statsEl = $<HTMLDivElement>("#stats");
 const messageEl = $<HTMLDivElement>("#message");
 const modeBtns = [...document.querySelectorAll<HTMLButtonElement>("[data-mode]")];
+const handBtns = [...document.querySelectorAll<HTMLButtonElement>("[data-hands]")];
 const bpmInput = $<HTMLInputElement>("#bpm");
 const goBtn = $<HTMLButtonElement>("#go");
 const calibrateBtn = $<HTMLButtonElement>("#calibrate");
@@ -32,6 +33,7 @@ const keyEls = new Map<number, HTMLDivElement>();
 const score = new Score(scoreEl);
 
 let mode: Mode = load("mode") === "tempo" ? "tempo" : "wait";
+let hands: Hands = (["right", "left"] as const).find((h) => h === load("hands")) ?? "both";
 let latencyMs = Number(load("latencyMs") ?? 0) || 0;
 let session: Session | null = null;
 let tempoRunning = false;
@@ -211,7 +213,7 @@ function renderMusicOptions() {
   const value = gradeSel.value || load("music") || "auto";
   const options: [string, string][] = [];
   if (player) {
-    options.push(["auto", `Auto (level ${player.levels[mode].toFixed(1)})`]);
+    options.push(["auto", `Auto (level ${player.levels[levelKey(mode, hands)].toFixed(1)})`]);
     for (let g = 1; g <= 9; g++) options.push([String(g), `Grade ${g}`]);
   }
   options.push(["test", "Test piece (Minuet)"]);
@@ -226,7 +228,7 @@ async function pickPiece() {
   if (!player || gradeSel.value === "test") return openScore(SCORE_URL, null);
   try {
     const grade = gradeSel.value === "auto" ? undefined : Number(gradeSel.value);
-    const { excerpt: next } = await api.next(player.id, mode, grade);
+    const { excerpt: next } = await api.next(player.id, mode, hands, grade);
     await openScore(next.score_url, next);
   } catch (err) {
     ui.message(`Couldn't get a piece: ${err instanceof Error ? err.message : err}`);
@@ -251,10 +253,11 @@ async function saveAttempt(result: AttemptResult) {
   const finished = messageEl.textContent ?? "";
   try {
     const change = await api.recordAttempt(player.id, excerpt.id, result);
-    player.levels[result.mode] = change.level_after;
+    player.levels[levelKey(result.mode, result.hands)] = change.level_after;
     const arrow = change.level_after > change.level_before ? "▲" : change.level_after < change.level_before ? "▼" : "→";
+    const which = `${result.hands === "both" ? "" : result.hands === "right" ? "Right-hand " : "Left-hand "}${result.mode}`;
     ui.message(
-      `${finished} ${result.mode === "wait" ? "Wait" : "Tempo"} level ${change.level_before.toFixed(2)} ${arrow} ` +
+      `${finished} ${which[0].toUpperCase()}${which.slice(1)} level ${change.level_before.toFixed(2)} ${arrow} ` +
         `${change.level_after.toFixed(2)} (grade ${excerpt.grade} piece, ${Math.round(change.performance * 100)}%).`,
       "ok",
     );
@@ -262,6 +265,23 @@ async function saveAttempt(result: AttemptResult) {
   } catch (err) {
     ui.message(`${finished} (Not saved: ${err instanceof Error ? err.message : err})`, "ok");
   }
+}
+
+function renderHands() {
+  for (const b of handBtns) b.setAttribute("aria-pressed", String(b.dataset.hands === hands));
+}
+
+for (const b of handBtns) {
+  b.addEventListener("click", () => {
+    b.blur();
+    if (b.dataset.hands === hands) return;
+    hands = b.dataset.hands as Hands;
+    save("hands", hands);
+    score.setHands(hands);
+    renderHands();
+    renderMusicOptions();
+    pickPiece(); // one-hand practice needs a piece with enough for that hand to do
+  });
 }
 
 playerSel.addEventListener("change", () => {
@@ -303,6 +323,8 @@ onDevices((d) => {
 });
 
 buildPiano();
+score.setHands(hands);
+renderHands();
 renderControls();
 startInput().then((msg) => {
   if (statusEl.textContent === "Loading…") statusEl.textContent = msg;

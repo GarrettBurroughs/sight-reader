@@ -39,6 +39,8 @@ h3 { margin: 24px 0 8px; font-size: 16px; }
 }
 .filters input[type="search"], .filters input[name="name"] { width: 16em; }
 .filters input[type="number"] { width: 5.5em; }
+.filters table { width: auto; }
+.filters td { border: 0; padding: 2px 8px 2px 0; }
 button.danger { border-color: var(--bad); color: var(--bad); }
 button:disabled { opacity: 0.4; }
 

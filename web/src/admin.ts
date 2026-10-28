@@ -5,7 +5,7 @@
 import "./style.css";
 import "./admin.css";
 import { OpenSheetMusicDisplay } from "opensheetmusicdisplay";
-import { api, type Attempt, type Player } from "./api";
+import { api, levelKey, type Attempt, type Hands, type Mode, type Player } from "./api";
 
 const view = document.querySelector<HTMLElement>("#view")!;
 const PAGE = 50;
@@ -41,6 +41,10 @@ function table(headers: string[], rows: Child[][], numeric: number[] = []) {
 const keyName = (fifths: number) => KEYS[fifths + 7] ?? String(fifths);
 const date = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : "—");
 const pct = (x: number | null) => (x === null || x === undefined ? "—" : `${Math.round(x)}%`);
+const MODES: Mode[] = ["wait", "tempo"];
+const HANDS: Hands[] = ["both", "right", "left"];
+const HAND_LABEL: Record<Hands, string> = { both: "Both", right: "Right", left: "Left" };
+const byHand = (r: number | null, l: number | null) => (r === null && l === null ? "—" : `R ${r ?? 0} · L ${l ?? 0}`);
 
 function fail(err: unknown) {
   view.replaceChildren(
@@ -194,9 +198,16 @@ async function showExcerpt(id: string) {
     h("h3", {}, "Attempts"),
     ex.attempts.length
       ? table(
-          ["When", "Player", "Mode", "Performance", "Level"],
-          ex.attempts.map((a) => [date(a.finished_at), a.player, a.mode, pct(a.performance * 100), `${a.level_before.toFixed(2)} → ${a.level_after.toFixed(2)}`]),
-          [3],
+          ["When", "Player", "Mode", "Hands", "Performance", "Level"],
+          ex.attempts.map((a) => [
+            date(a.finished_at),
+            a.player,
+            a.mode,
+            HAND_LABEL[a.hands],
+            pct(a.performance * 100),
+            `${a.level_before.toFixed(2)} → ${a.level_after.toFixed(2)}`,
+          ]),
+          [4],
         )
       : h("p", { class: "quiet" }, "Nobody has played this one yet."),
   );
@@ -224,8 +235,14 @@ async function showPlayers() {
   view.replaceChildren(
     h("h2", {}, "Players"),
     table(
-      ["Name", "Wait level", "Tempo level", "Attempts", "Last played"],
-      players.map((p) => [h("a", { href: `#player/${p.id}` }, p.name), p.levels.wait.toFixed(2), p.levels.tempo.toFixed(2), p.attempts, date(p.last_played)]),
+      ["Name", "Wait (R · L)", "Tempo (R · L)", "Attempts", "Last played"],
+      players.map((p) => [
+        h("a", { href: `#player/${p.id}` }, p.name),
+        levelSummary(p, "wait"),
+        levelSummary(p, "tempo"),
+        p.attempts,
+        date(p.last_played),
+      ]),
       [1, 2, 3],
     ),
     h("h3", {}, "Add a player"),
@@ -266,25 +283,29 @@ async function showPlayer(id: number) {
     h("h2", {}, player.name),
     h("p", { class: "quiet" }, `Since ${date(player.created_at)} · ${player.attempts} attempts · last played ${date(player.last_played)}`),
     playerForm(player, msg),
+    h("h3", {}, "Which hand slips (hands-together runs)"),
+    handBreakdown(attempts),
     h("h3", {}, "Per grade"),
     gradeBreakdown(attempts),
     h("h3", {}, "Attempts, newest first"),
     attempts.length
       ? table(
-          ["When", "Piece", "Grade", "Mode", "BPM", "Wrong", "Notes", "Timing", "Performance", "Level"],
+          ["When", "Piece", "Grade", "Mode", "Hands", "BPM", "Wrong", "Missed", "Notes", "Timing", "Performance", "Level"],
           attempts.map((a) => [
             date(a.finished_at),
             h("a", { href: `#excerpt/${a.excerpt_id}` }, a.title ?? a.excerpt_id),
             a.grade,
             a.mode,
+            HAND_LABEL[a.hands],
             a.bpm ?? "—",
-            a.wrong,
+            a.hands === "both" ? byHand(a.wrong_right, a.wrong_left) : a.wrong,
+            a.mode === "tempo" ? byHand(a.missed_right, a.missed_left) : "—",
             pct(a.note_pct),
             pct(a.timing_pct),
             pct(a.performance * 100),
             levelChange(a),
           ]),
-          [2, 4, 5, 6, 7, 8],
+          [2, 5, 8, 9, 10],
         )
       : h("p", { class: "quiet" }, "No attempts yet."),
   );
@@ -317,35 +338,71 @@ function playerForm(player: Player, msg: HTMLElement) {
       onsubmit: async (e: Event) => {
         e.preventDefault();
         const f = new FormData(e.target as HTMLFormElement);
-        await api.updatePlayer(player.id, {
-          name: String(f.get("name")),
-          levels: { wait: Number(f.get("wait")), tempo: Number(f.get("tempo")) },
-        });
+        const levels = Object.fromEntries(MODES.flatMap((m) => HANDS.map((hd) => [levelKey(m, hd), Number(f.get(levelKey(m, hd)))])));
+        await api.updatePlayer(player.id, { name: String(f.get("name")), levels });
         msg.textContent = "Saved.";
         showPlayer(player.id);
       },
     },
     h("label", {}, "Name ", h("input", { name: "name", value: player.name, required: true, maxlength: "40" })),
-    h("label", {}, "Wait level ", h("input", { name: "wait", type: "number", min: "1", max: "9", step: "0.01", value: player.levels.wait.toFixed(2) })),
-    h("label", {}, "Tempo level ", h("input", { name: "tempo", type: "number", min: "1", max: "9", step: "0.01", value: player.levels.tempo.toFixed(2) })),
+    table(
+      ["Levels", ...HANDS.map((hands) => HAND_LABEL[hands])],
+      MODES.map((mode) => [
+        mode === "wait" ? "Wait" : "Tempo",
+        ...HANDS.map((hands) =>
+          h("input", {
+            name: levelKey(mode, hands),
+            type: "number",
+            min: "1",
+            max: "9",
+            step: "0.01",
+            value: player.levels[levelKey(mode, hands)].toFixed(2),
+            "aria-label": `${mode} ${hands} level`,
+          }),
+        ),
+      ]),
+    ),
     h("button", { type: "submit" }, "Save"),
     deleteBtn,
     msg,
   );
 }
 
+function levelSummary(p: Player, mode: Mode) {
+  const lv = (hands: Hands) => p.levels[levelKey(mode, hands)].toFixed(1);
+  return `${lv("both")} (${lv("right")} · ${lv("left")})`;
+}
+
+function handBreakdown(attempts: Attempt[]) {
+  const together = attempts.filter((a) => a.hands === "both");
+  if (!together.length) return h("p", { class: "quiet" }, "No hands-together runs yet.");
+  const sum = (key: "wrong_right" | "wrong_left" | "missed_right" | "missed_left") => together.reduce((s, a) => s + (a[key] ?? 0), 0);
+  const tempoRuns = together.filter((a) => a.mode === "tempo").length;
+  return table(
+    ["", "Right hand", "Left hand"],
+    [
+      ["Wrong notes", sum("wrong_right"), sum("wrong_left")],
+      ["Missed notes (tempo)", tempoRuns ? sum("missed_right") : "—", tempoRuns ? sum("missed_left") : "—"],
+    ],
+    [1, 2],
+  );
+}
+
 function gradeBreakdown(attempts: Attempt[]) {
   if (!attempts.length) return h("p", { class: "quiet" }, "—");
   const by = new Map<string, Attempt[]>();
-  for (const a of attempts) by.set(`${a.mode}:${a.grade}`, [...(by.get(`${a.mode}:${a.grade}`) ?? []), a]);
+  for (const a of attempts) {
+    const key = `${a.mode}|${a.hands}|${a.grade}`;
+    by.set(key, [...(by.get(key) ?? []), a]);
+  }
   const rows = [...by.entries()]
     .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
     .map(([key, list]) => {
-      const [mode, grade] = key.split(":");
+      const [mode, hands, grade] = key.split("|");
       const avg = list.reduce((s, a) => s + a.performance, 0) / list.length;
-      return [mode, grade, list.length, pct(avg * 100)];
+      return [mode, HAND_LABEL[hands as Hands], grade, list.length, pct(avg * 100)];
     });
-  return table(["Mode", "Grade", "Attempts", "Average performance"], rows, [1, 2, 3]);
+  return table(["Mode", "Hands", "Grade", "Attempts", "Average performance"], rows, [2, 3, 4]);
 }
 
 function levelChange(a: Attempt) {

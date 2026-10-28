@@ -5,6 +5,7 @@ export type Expected = {
   step: number; // index of the score step (chord) this note belongs to
   midi: number;
   time: number; // ms after the first beat of the piece
+  hand?: "right" | "left";
 };
 
 export type Judgement = "ontime" | "early" | "late" | "missed";

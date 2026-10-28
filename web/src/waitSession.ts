@@ -2,7 +2,7 @@
 
 import type { AttemptResult } from "./api";
 import { noteName } from "./midi";
-import type { Score, Step } from "./score";
+import { handOf, toMidi, type Hand, type Score, type Step } from "./score";
 import { formatTime, OK_COLOR, SLIP_COLOR, type Session, type UI } from "./session";
 import { WaitMatcher } from "./waitMode";
 
@@ -12,6 +12,7 @@ export class WaitSession implements Session {
   private stepSlipped = false;
   private mistakes = 0;
   private stepsDone = 0;
+  private wrongBy: Record<Hand, number> = { right: 0, left: 0 };
   private startedAt: number | null = null;
   private finishedAt: number | null = null;
   private timer: number;
@@ -35,6 +36,7 @@ export class WaitSession implements Session {
     const result = this.matcher.noteOn(note);
     if (result === "wrong") {
       this.mistakes++;
+      this.wrongBy[this.nearestHand(note)]++;
       this.stepSlipped = true;
       this.ui.wrong(note);
       this.render();
@@ -69,12 +71,22 @@ export class WaitSession implements Session {
       );
       this.onFinish({
         mode: "wait",
+        hands: this.score.hands,
+        wrong_right: this.wrongBy.right,
+        wrong_left: this.wrongBy.left,
         steps: this.stepsDone,
         wrong: this.mistakes,
         duration_ms: Math.round(this.finishedAt - (this.startedAt ?? this.finishedAt)),
       });
     }
     this.render();
+  }
+
+  /** Whose slip was it? The hand of the expected note closest in pitch to the wrong one. */
+  private nearestHand(note: number): Hand {
+    const notes = this.step!.notes;
+    const best = notes.reduce((a, b) => (Math.abs(toMidi(b) - note) < Math.abs(toMidi(a) - note) ? b : a));
+    return handOf(best);
   }
 
   private render() {

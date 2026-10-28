@@ -19,6 +19,11 @@
           <button type="button" data-mode="wait" aria-pressed="true">Wait</button>
           <button type="button" data-mode="tempo" aria-pressed="false">Tempo</button>
         </div>
+        <div class="modes" aria-label="Hands">
+          <button type="button" data-hands="both" aria-pressed="true">Both hands</button>
+          <button type="button" data-hands="right" aria-pressed="false">Right</button>
+          <button type="button" data-hands="left" aria-pressed="false">Left</button>
+        </div>
         <select id="grade" aria-label="Music"></select>
         <button id="next" type="button" hidden>Next piece</button>
         <label class="tempo-only">BPM <input id="bpm" type="number" min="30" max="200" step="5" inputmode="numeric" /></label>

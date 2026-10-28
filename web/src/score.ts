@@ -8,6 +8,11 @@ export type Step = {
   notes: Note[]; // the OSMD notes behind them, for colouring
 };
 
+export type Hands = "both" | "right" | "left";
+export type Hand = "right" | "left";
+
+const DIM_COLOR = "#c4bfb5"; // the hand you're not playing
+
 export type TimedStep = Step & {
   beat: number; // beats after the start, in the time signature's beat unit
 };
@@ -15,6 +20,7 @@ export type TimedStep = Step & {
 export class Score {
   private osmd: OpenSheetMusicDisplay;
   private colored: SVGElement[] = [];
+  private _hands: Hands = "both";
 
   constructor(container: HTMLElement) {
     this.osmd = new OpenSheetMusicDisplay(container, {
@@ -34,12 +40,34 @@ export class Score {
     this.osmd.cursor.show();
   }
 
-  /** Back to the first note, with colours cleared. */
+  get hands() {
+    return this._hands;
+  }
+
+  /** Play one hand only: the other hand's notes are greyed out and never expected. */
+  setHands(hands: Hands) {
+    this._hands = hands;
+  }
+
+  /** Back to the first note, with colours cleared (and the other hand greyed out). */
   restart() {
     for (const el of this.colored) setColor(el, null);
     this.colored = [];
+    if (this._hands !== "both") this.color(this.allNotes().filter((n) => handOf(n) !== this._hands), DIM_COLOR);
     this.osmd.cursor.reset();
     this.osmd.cursor.show();
+  }
+
+  private allNotes(): Note[] {
+    const it = this.osmd.Sheet.MusicPartManager.getIterator();
+    const notes: Note[] = [];
+    for (; !it.EndReached; it.moveToNext()) notes.push(...it.CurrentVoiceEntries.flatMap((v) => v.Notes));
+    return notes.filter((n) => !n.isRest());
+  }
+
+  /** A note this session expects you to press. */
+  private expects(n: Note) {
+    return isPlayable(n) && (this._hands === "both" || handOf(n) === this._hands);
   }
 
   get finished() {
@@ -50,7 +78,7 @@ export class Score {
   current(): Step | null {
     const cursor = this.osmd.cursor;
     while (!cursor.Iterator.EndReached) {
-      const notes = cursor.NotesUnderCursor().filter(isPlayable);
+      const notes = cursor.NotesUnderCursor().filter((n) => this.expects(n));
       if (notes.length) return { notes, midi: [...new Set(notes.map(toMidi))] };
       cursor.next();
     }
@@ -79,7 +107,7 @@ export class Score {
     const it = this.osmd.Sheet.MusicPartManager.getIterator();
     const steps: TimedStep[] = [];
     while (!it.EndReached) {
-      const notes = it.CurrentVoiceEntries.flatMap((v) => v.Notes).filter(isPlayable);
+      const notes = it.CurrentVoiceEntries.flatMap((v) => v.Notes).filter((n) => this.expects(n));
       if (notes.length) {
         steps.push({ notes, midi: [...new Set(notes.map(toMidi))], beat: it.currentTimeStamp.RealValue * unit });
       }
@@ -151,6 +179,12 @@ export class Score {
     const g = this.gnote(n);
     return g?.getNoteheadSVGs()[g.vfnoteIndex] as SVGElement | undefined;
   }
+}
+
+/** Which hand plays a note: the top staff is the right hand, anything below it the left. */
+export function handOf(n: Note): Hand {
+  const staff = n.ParentStaff;
+  return staff.ParentInstrument.Staves.indexOf(staff) === 0 ? "right" : "left";
 }
 
 function isPlayable(n: Note) {

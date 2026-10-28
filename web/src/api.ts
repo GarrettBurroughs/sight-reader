@@ -1,7 +1,11 @@
 // Typed calls to the API server (server/app.py), reached through the Vite proxy at /api.
 
 export type Mode = "wait" | "tempo";
-export type Levels = Record<Mode, number>;
+export type Hands = "both" | "right" | "left";
+/** Keyed "wait", "tempo", "wait:left", "tempo:right"... (see levelKey). */
+export type Levels = Record<string, number>;
+
+export const levelKey = (mode: Mode, hands: Hands) => (hands === "both" ? mode : `${mode}:${hands}`);
 
 export type Player = {
   id: number;
@@ -35,7 +39,7 @@ export type ExcerptDetail = Excerpt & {
   n_favorites: number;
   features: Record<string, unknown>;
   terms: Record<string, number>;
-  attempts: { id: number; mode: Mode; finished_at: string; performance: number; level_before: number; level_after: number; player: string }[];
+  attempts: { id: number; mode: Mode; hands: Hands; finished_at: string; performance: number; level_before: number; level_after: number; player: string }[];
 };
 
 export type Attempt = {
@@ -45,10 +49,15 @@ export type Attempt = {
   title: string | null;
   grade: number;
   mode: Mode;
+  hands: Hands;
   finished_at: string;
   bpm: number | null;
   duration_ms: number;
   wrong: number;
+  wrong_right: number | null;
+  wrong_left: number | null;
+  missed_right: number | null;
+  missed_left: number | null;
   note_pct: number | null;
   timing_pct: number | null;
   performance: number;
@@ -56,8 +65,12 @@ export type Attempt = {
   level_after: number;
 };
 
+/** Wrong presses put down to each hand (by the nearest expected note), and tempo-mode misses. */
+type ByHand = { hands: Hands; wrong_right: number; wrong_left: number; missed_right?: number; missed_left?: number };
+
 /** What a finished session reports; the server works out performance and the new level. */
-export type AttemptResult =
+export type AttemptResult = ByHand &
+  (
   | { mode: "wait"; steps: number; wrong: number; duration_ms: number }
   | {
       mode: "tempo";
@@ -70,7 +83,8 @@ export type AttemptResult =
       note_pct: number;
       timing_pct: number;
       mean_offset_ms: number;
-    };
+    }
+  );
 
 export type LevelChange = { performance: number; level_before: number; level_after: number };
 
@@ -118,8 +132,8 @@ export const api = {
     call<{ id: number; levels: Levels }>("PATCH", `/api/players/${id}`, patch),
   deletePlayer: (id: number) => call<void>("DELETE", `/api/players/${id}`),
   attempts: (playerId: number, limit = 200) => call<Attempt[]>("GET", `/api/players/${playerId}/attempts?limit=${limit}`),
-  next: (playerId: number, mode: Mode, grade?: number) =>
-    call<{ level: number; excerpt: Excerpt }>("GET", `/api/next?${query({ player_id: playerId, mode, grade })}`),
+  next: (playerId: number, mode: Mode, hands: Hands, grade?: number) =>
+    call<{ level: number; excerpt: Excerpt }>("GET", `/api/next?${query({ player_id: playerId, mode, hands, grade })}`),
   recordAttempt: (playerId: number, excerptId: string, result: AttemptResult) =>
     call<LevelChange>("POST", "/api/attempts", { player_id: playerId, excerpt_id: excerptId, ...result }),
   excerpt: (id: string) => call<ExcerptDetail>("GET", `/api/excerpts/${encodeURIComponent(id)}`),
