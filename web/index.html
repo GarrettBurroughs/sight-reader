@@ -5,22 +5,24 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Sight Reader</title>
   </head>
-  <body>
+  <body data-mode="wait">
     <header>
       <h1>Sight Reader</h1>
       <div id="status">Loading…</div>
     </header>
 
     <div class="toolbar">
-      <span class="mode">Wait mode</span>
-      <span id="progress">—</span>
-      <span>Next: <strong id="expect">—</strong></span>
-      <span>Wrong notes: <strong id="mistakes">0</strong></span>
-      <span>Time: <strong id="time">0:00</strong></span>
-      <button id="restart" type="button">Restart</button>
+      <div class="modes">
+        <button type="button" data-mode="wait" aria-pressed="true">Wait</button>
+        <button type="button" data-mode="tempo" aria-pressed="false">Tempo</button>
+      </div>
+      <label class="tempo-only">BPM <input id="bpm" type="number" min="30" max="200" step="5" inputmode="numeric" /></label>
+      <button id="go" type="button">Restart</button>
+      <button id="calibrate" type="button" class="tempo-only">Calibrate</button>
     </div>
 
-    <div id="done" hidden></div>
+    <div id="stats"></div>
+    <div id="message" hidden></div>
 
     <main>
       <div id="score"></div>

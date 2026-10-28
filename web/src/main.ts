@@ -1,34 +1,54 @@
 import "./style.css";
+import { unlockAudio } from "./audio";
+import { Calibration } from "./calibrate";
 import { isBlackKey, noteName, onDevices, onNote, startInput } from "./midi";
-import { Score, type Step } from "./score";
-import { WaitMatcher } from "./waitMode";
+import { Score } from "./score";
+import type { Session, UI } from "./session";
+import { TempoSession } from "./tempoSession";
+import { WaitSession } from "./waitSession";
 
 const SCORE_URL = "/scores/minuet-in-g.musicxml";
 const LOW = 36; // C2
 const HIGH = 96; // C7
-const OK_COLOR = "#2e8b57";
-const SLIP_COLOR = "#d9822b"; // step finished, but with a wrong note along the way
 
-const statusEl = document.querySelector<HTMLDivElement>("#status")!;
-const scoreEl = document.querySelector<HTMLDivElement>("#score")!;
-const pianoEl = document.querySelector<HTMLDivElement>("#piano")!;
-const progressEl = document.querySelector<HTMLSpanElement>("#progress")!;
-const mistakesEl = document.querySelector<HTMLSpanElement>("#mistakes")!;
-const timeEl = document.querySelector<HTMLSpanElement>("#time")!;
-const expectEl = document.querySelector<HTMLSpanElement>("#expect")!;
-const doneEl = document.querySelector<HTMLDivElement>("#done")!;
-const restartBtn = document.querySelector<HTMLButtonElement>("#restart")!;
+type Mode = "wait" | "tempo";
 
-const held = new Set<number>();
+const $ = <T extends Element>(sel: string) => document.querySelector<T>(sel)!;
+const statusEl = $<HTMLDivElement>("#status");
+const scoreEl = $<HTMLDivElement>("#score");
+const pianoEl = $<HTMLDivElement>("#piano");
+const statsEl = $<HTMLDivElement>("#stats");
+const messageEl = $<HTMLDivElement>("#message");
+const modeBtns = [...document.querySelectorAll<HTMLButtonElement>("[data-mode]")];
+const bpmInput = $<HTMLInputElement>("#bpm");
+const goBtn = $<HTMLButtonElement>("#go");
+const calibrateBtn = $<HTMLButtonElement>("#calibrate");
+
 const keyEls = new Map<number, HTMLDivElement>();
 const score = new Score(scoreEl);
-const matcher = new WaitMatcher();
 
-let step: Step | null = null;
-let stepSlipped = false;
-let mistakes = 0;
-let startedAt: number | null = null;
-let finishedAt: number | null = null;
+let mode: Mode = load("mode") === "tempo" ? "tempo" : "wait";
+let latencyMs = Number(load("latencyMs") ?? 0) || 0;
+let session: Session | null = null;
+let tempoRunning = false;
+bpmInput.value = load("bpm") ?? "60";
+
+// ---- Saved settings (best effort: storage can be unavailable) ----
+function load(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function save(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // not saved; fine
+  }
+}
 
 // ---- On-screen piano ----
 function buildPiano() {
@@ -61,73 +81,116 @@ function flash(el: Element | undefined, cls: string) {
   el.classList.add(cls);
 }
 
-// ---- Practice state ----
-function enterStep() {
-  step = score.current();
-  stepSlipped = false;
-  if (step) {
-    matcher.setExpected(step.midi);
-  } else {
-    finishedAt = performance.now();
-    doneEl.hidden = false;
-    doneEl.textContent =
-      `Finished in ${formatTime(finishedAt - (startedAt ?? finishedAt))} with ` +
-      `${mistakes} wrong note${mistakes === 1 ? "" : "s"}.`;
+// ---- What sessions can do to the page ----
+const ui: UI = {
+  stats(items) {
+    statsEl.replaceChildren(
+      ...items.map(([label, value]) => {
+        const span = document.createElement("span");
+        const strong = document.createElement("strong");
+        strong.textContent = value;
+        span.append(`${label}: `, strong);
+        return span;
+      }),
+    );
+  },
+  message(text, tone = "info") {
+    messageEl.hidden = text === null;
+    messageEl.textContent = text ?? "";
+    messageEl.className = tone;
+  },
+  wrong(note) {
+    flash(keyEls.get(note), "wrong");
+    flash(scoreEl, "wrong");
+  },
+};
+
+// ---- Modes and controls ----
+function setMode(next: Mode) {
+  mode = next;
+  save("mode", mode);
+  document.body.dataset.mode = mode;
+  for (const b of modeBtns) b.setAttribute("aria-pressed", String(b.dataset.mode === mode));
+  stopSession();
+  if (mode === "wait") session = new WaitSession(score, ui);
+  else {
+    score.restart();
+    ui.message(null);
+    ui.stats([["Tempo", `${bpm()} BPM`], ["Latency", `${latencyMs} ms`]]);
   }
-  renderStats();
+  renderControls();
 }
 
-function restart() {
-  score.restart();
-  mistakes = 0;
-  startedAt = finishedAt = null;
-  doneEl.hidden = true;
-  enterStep();
+function stopSession() {
+  session?.stop();
+  session = null;
+  tempoRunning = false;
 }
 
-function renderStats() {
-  const { measure, total } = score.position();
-  progressEl.textContent = step ? `Bar ${measure} of ${total}` : `All ${total} bars`;
-  mistakesEl.textContent = String(mistakes);
-  expectEl.textContent = step ? step.midi.slice().sort((a, b) => a - b).map(noteName).join(" ") : "—";
-  renderTime();
+function bpm() {
+  const value = Math.round(Number(bpmInput.value));
+  return Math.min(200, Math.max(30, Number.isFinite(value) && value > 0 ? value : 60));
 }
 
-function renderTime() {
-  const end = finishedAt ?? performance.now();
-  timeEl.textContent = startedAt === null ? "0:00" : formatTime(end - startedAt);
+function renderControls() {
+  goBtn.textContent = mode === "wait" ? "Restart" : tempoRunning ? "Stop" : "Start";
+  bpmInput.disabled = tempoRunning;
+  calibrateBtn.textContent = `Calibrate (${latencyMs} ms)`;
 }
 
-function formatTime(ms: number) {
-  const s = Math.floor(ms / 1000);
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+goBtn.addEventListener("click", () => {
+  goBtn.blur(); // keep the computer-keyboard fallback from "pressing" the button
+  if (mode === "wait") {
+    stopSession();
+    session = new WaitSession(score, ui);
+  } else if (tempoRunning) {
+    stopSession();
+    ui.message("Stopped.", "info");
+  } else {
+    stopSession();
+    unlockAudio();
+    bpmInput.value = String(bpm());
+    save("bpm", bpmInput.value);
+    tempoRunning = true;
+    session = new TempoSession(score, ui, bpm(), latencyMs, () => {
+      tempoRunning = false;
+      renderControls();
+    });
+  }
+  renderControls();
+});
+
+calibrateBtn.addEventListener("click", () => {
+  calibrateBtn.blur();
+  stopSession();
+  unlockAudio();
+  session = new Calibration(ui, (result) => {
+    if (result !== null) {
+      latencyMs = result;
+      save("latencyMs", String(latencyMs));
+    }
+    session = null;
+    renderControls();
+  });
+  renderControls();
+});
+
+for (const b of modeBtns) {
+  b.addEventListener("click", () => {
+    b.blur();
+    if (b.dataset.mode !== mode) setMode(b.dataset.mode as Mode);
+  });
 }
 
+// ---- Input ----
 onNote((e) => {
   const key = keyEls.get(e.note);
-  if (e.type === "off") {
-    held.delete(e.note);
+  if (e.type === "on") {
+    key?.classList.add("down");
+    session?.noteOn(e.note, e.t);
+  } else {
     key?.classList.remove("down");
-    matcher.noteOff(e.note);
-    return;
-  }
-
-  held.add(e.note);
-  key?.classList.add("down");
-  if (!step) return;
-  startedAt ??= performance.now();
-
-  const result = matcher.noteOn(e.note);
-  if (result === "wrong") {
-    mistakes++;
-    stepSlipped = true;
-    flash(key, "wrong");
-    flash(scoreEl, "wrong");
-    renderStats();
-  } else if (result === "complete") {
-    score.color(step.notes, stepSlipped ? SLIP_COLOR : OK_COLOR);
-    score.advance();
-    enterStep();
+    session?.noteOff(e.note);
   }
 });
 
@@ -138,22 +201,14 @@ onDevices((d) => {
   statusEl.classList.toggle("ok", d.names.length > 0);
 });
 
-restartBtn.addEventListener("click", () => {
-  restartBtn.blur(); // keep the computer-keyboard fallback from "pressing" the button
-  restart();
-});
-
-setInterval(() => {
-  if (startedAt !== null && finishedAt === null) renderTime();
-}, 250);
-
 buildPiano();
+renderControls();
 startInput().then((msg) => {
   if (statusEl.textContent === "Loading…") statusEl.textContent = msg;
 });
 score
   .load(SCORE_URL)
-  .then(enterStep)
+  .then(() => setMode(mode))
   .catch((err) => {
     scoreEl.textContent = `Couldn't load ${SCORE_URL}: ${err}`;
   });

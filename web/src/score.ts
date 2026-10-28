@@ -8,6 +8,10 @@ export type Step = {
   notes: Note[]; // the OSMD notes behind them, for colouring
 };
 
+export type TimedStep = Step & {
+  beat: number; // beats after the start, in the time signature's beat unit
+};
+
 export class Score {
   private osmd: OpenSheetMusicDisplay;
   private colored: SVGElement[] = [];
@@ -54,6 +58,42 @@ export class Score {
 
   advance() {
     this.osmd.cursor.next();
+  }
+
+  /** Time signature of the first bar, e.g. { beats: 3, unit: 4 } for 3/4. */
+  meter() {
+    const ts = this.osmd.Sheet.SourceMeasures[0].ActiveTimeSignature;
+    return { beats: ts.Numerator, unit: ts.Denominator };
+  }
+
+  /** Length of the whole piece in beats. */
+  lengthInBeats() {
+    const whole = this.osmd.Sheet.SourceMeasures.reduce((sum, m) => sum + m.Duration.RealValue, 0);
+    return whole * this.meter().unit;
+  }
+
+  /** Every playable step with its start time, read without moving the visible cursor. */
+  timeline(): TimedStep[] {
+    const { unit } = this.meter();
+    const it = this.osmd.Sheet.MusicPartManager.getIterator();
+    const steps: TimedStep[] = [];
+    while (!it.EndReached) {
+      const notes = it.CurrentVoiceEntries.flatMap((v) => v.Notes).filter(isPlayable);
+      if (notes.length) {
+        steps.push({ notes, midi: [...new Set(notes.map(toMidi))], beat: it.currentTimeStamp.RealValue * unit });
+      }
+      it.moveToNext();
+    }
+    return steps;
+  }
+
+  /** Move the cursor forward to the first position at or after `beat`. */
+  seek(beat: number) {
+    const cursor = this.osmd.cursor;
+    const { unit } = this.meter();
+    while (!cursor.Iterator.EndReached && cursor.Iterator.currentTimeStamp.RealValue * unit < beat - 1e-6) {
+      cursor.next();
+    }
   }
 
   /** Measure number at the cursor (1-based) and total measures. */

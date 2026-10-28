@@ -5,7 +5,7 @@ export type NoteEvent = {
   type: "on" | "off";
   note: number; // MIDI note number, 60 = middle C
   velocity: number; // 0-127
-  t: number; // milliseconds on the source's clock
+  t: number; // arrival time in ms on the performance.now() clock
   source: "ipad" | "webmidi" | "keyboard";
 };
 
@@ -45,7 +45,9 @@ declare global {
 }
 
 function installShellBridge() {
-  window.onMidi = (e) => emit({ ...e, source: "ipad" });
+  // The shell's timestamps use the iPad's host clock, so stamp arrival time instead;
+  // latency calibration absorbs the bridge delay.
+  window.onMidi = (e) => emit({ ...e, t: performance.now(), source: "ipad" });
   window.onMidiDevices = (names) => emitDevices({ source: "ipad", names });
 }
 
