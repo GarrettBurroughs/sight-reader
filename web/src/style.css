@@ -47,6 +47,8 @@ body {
 
 header { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
 h1 { font-size: 22px; margin: 0; }
+.admin-link { margin-left: auto; color: var(--quiet); font-size: 14px; }
+#player { padding: 4px 8px; font-size: 14px; }
 #status { color: var(--quiet); font-size: 14px; }
 #status.ok { color: var(--ok); }
 

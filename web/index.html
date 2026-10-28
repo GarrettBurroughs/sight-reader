@@ -10,6 +10,8 @@
       <header>
         <h1>Sight Reader</h1>
         <div id="status">Loading…</div>
+        <select id="player" aria-label="Player" hidden></select>
+        <a class="admin-link" href="/admin.html">Admin</a>
       </header>
 
       <div class="toolbar">
@@ -17,10 +19,8 @@
           <button type="button" data-mode="wait" aria-pressed="true">Wait</button>
           <button type="button" data-mode="tempo" aria-pressed="false">Tempo</button>
         </div>
-        <span id="library" hidden>
-          <select id="grade" aria-label="Music"></select>
-          <button id="next" type="button">Next piece</button>
-        </span>
+        <select id="grade" aria-label="Music"></select>
+        <button id="next" type="button" hidden>Next piece</button>
         <label class="tempo-only">BPM <input id="bpm" type="number" min="30" max="200" step="5" inputmode="numeric" /></label>
         <button id="go" type="button">Restart</button>
         <button id="calibrate" type="button" class="tempo-only">Calibrate</button>

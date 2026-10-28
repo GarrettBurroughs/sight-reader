@@ -6,6 +6,8 @@ Milestone 1 from the design doc: prove that notes from your MIDI keyboard reach 
 sight-reader/
   web/       Web client (Vite + TypeScript). Runs on your PC.
   pipeline/  Python (standard library only): builds the graded excerpt library from PDMX.
+  server/    FastAPI + SQLite: serves excerpts, records attempts, tracks player levels.
+  dev.sh     Starts the API server and the web dev server together.
   ipad/   iPad shell: SightReader.swiftpm, a Swift Playgrounds app project.
 ```
 
@@ -58,7 +60,7 @@ Play a few notes. You should see the note names, the on-screen keyboard light up
 
 ## 3. Day-to-day workflow
 
-- Edit files in `web/` on your PC. Saving reloads the page on the iPad automatically.
+- Run `./dev.sh`, then edit files in `web/` on your PC. Saving reloads the page on the iPad automatically.
 - The Swift shell should rarely change. When it does, run `ipad/package.sh` again and reopen the new copy (delete the old one in Playgrounds first).
 - The address you typed is remembered between launches.
 
@@ -73,7 +75,6 @@ for f in PDMX.csv subset_paths.tar.gz mxl.tar.gz; do curl -L -C - -o "$f" "https
 tar xzf mxl.tar.gz -C ../pdmx && tar xzf subset_paths.tar.gz -C ../pdmx
 cd ../..
 python3 catalog.py                 # all solo piano scores; add --no-license-conflict-only to skip flagged ones
-python3 export_web.py              # copy 30 excerpts per grade into web/public/library for the page's grade picker
 python3 -m unittest discover -s tests
 ```
 
@@ -84,6 +85,28 @@ What `catalog.py` does:
 3. **Cuts up to 4 excerpts of 8 bars** per piece, on 8-bar boundaries, skipping windows with volta endings, D.S./coda jumps, multi-bar rests, meter changes, mostly-empty bars, or bars that don't add up.
 4. **Measures difficulty** (`features.py`): note density, left-hand busyness, chords and stretches, leaps, shortest note value, syncopation, tuplets, accidentals, key signature, ledger lines, voices per hand, tempo when marked.
 5. **Grades 1–9** by where each excerpt's difficulty falls across the library (equal-sized bands), and writes `data/library/library.sqlite` plus one `.mxl` per excerpt. Each piece keeps its `no_license_conflict` flag for filtering.
+
+## 5. Run the server and admin panel
+
+One-time setup (this system Python lacks `ensurepip`, so the venv borrows the system pip):
+
+```bash
+cd ~/dev/sight-reader
+python3 -m venv --without-pip server/.venv
+pip3 --python server/.venv/bin/python install -r server/requirements.txt
+```
+
+Then, every time, instead of `npm run dev`:
+
+```bash
+cd ~/dev/sight-reader && ./dev.sh
+```
+
+This starts the API on `127.0.0.1:8000` (local only) and Vite on port 5173; Vite forwards `/api` to the API, so the iPad still only needs `http://<pc-ip>:5173`. Player data is in `server/data/app.sqlite` (git-ignored); the library is read from `pipeline/data/library/`. Set `SIGHTREADER_LICENSE_ONLY=1` to serve only scores without a license conflict.
+
+- **Practice page:** the music menu defaults to **Auto**, which asks the server for an unplayed excerpt near your level for the current mode (mostly your grade, sometimes one either side, never a piece from your last 15). Every finished run is saved and nudges that mode's level: above 85% moves it up (at most +0.3), below moves it down (at most −0.5). Pick a fixed grade or the test piece from the same menu; test-piece runs aren't saved.
+- **Admin panel** (`/admin.html`, or the Admin link): browse and filter the library, open any excerpt to see it rendered with its grade breakdown and attempts, play it, and manage players (levels, names, full attempt history, delete).
+- Tests: `server/.venv/bin/python -m pytest server/tests`.
 
 ## Troubleshooting
 

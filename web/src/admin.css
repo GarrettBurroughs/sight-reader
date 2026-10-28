@@ -1,0 +1,66 @@
+/* Admin panel. Colours and controls come from style.css. */
+
+body.admin {
+  padding: max(16px, env(safe-area-inset-top)) 24px 48px;
+  -webkit-user-select: text;
+  user-select: text;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.admin-header {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 12px;
+}
+.admin-header h1 span { color: var(--quiet); font-weight: 400; }
+.admin-header nav { display: flex; gap: 16px; }
+.admin-header nav a { color: var(--quiet); text-decoration: none; }
+.admin-header nav a.active { color: var(--accent); font-weight: 600; }
+
+a { color: var(--accent); }
+h2 { margin: 24px 0 4px; font-size: 22px; }
+h3 { margin: 24px 0 8px; font-size: 16px; }
+.quiet { color: var(--quiet); }
+.error { color: var(--bad); }
+.grade { color: var(--accent); }
+.up { color: var(--ok); }
+.down { color: var(--bad); }
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 16px 0;
+}
+.filters input[type="search"], .filters input[name="name"] { width: 16em; }
+.filters input[type="number"] { width: 5.5em; }
+button.danger { border-color: var(--bad); color: var(--bad); }
+button:disabled { opacity: 0.4; }
+
+.pager { display: flex; align-items: center; gap: 12px; margin: 8px 0; color: var(--quiet); }
+
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--quiet); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+tbody tr:hover { background: var(--card); }
+
+.score-preview {
+  background: #fff;
+  border-radius: 10px;
+  margin: 16px 0;
+  min-height: 120px;
+  color: #000;
+}
+
+.columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px; }
+
+@media (max-width: 700px) {
+  body.admin { padding-left: 16px; padding-right: 16px; }
+  table { display: block; overflow-x: auto; }
+}

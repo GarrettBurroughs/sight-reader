@@ -7,4 +7,5 @@ ipad/build/
 pipeline/data/
 pipeline/.venv/
 __pycache__/
-web/public/library/
+server/.venv/
+server/data/

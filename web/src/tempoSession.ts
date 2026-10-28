@@ -1,6 +1,7 @@
 // Tempo mode: one bar of count-in, then the metronome keeps going and the cursor
 // moves at the set tempo whether or not you play. Notes and timing are scored separately.
 
+import type { AttemptResult } from "./api";
 import { Clicks } from "./audio";
 import { toMidi, type Score, type TimedStep } from "./score";
 import { MISS_COLOR, OK_COLOR, SLIP_COLOR, type Session, type UI } from "./session";
@@ -25,9 +26,9 @@ export class TempoSession implements Session {
   constructor(
     private score: Score,
     private ui: UI,
-    bpm: number,
+    private bpm: number,
     private latencyMs: number,
-    private onFinish: () => void,
+    private onFinish: (result: AttemptResult) => void,
   ) {
     this.beatMs = 60_000 / bpm;
     this.steps = score.timeline();
@@ -122,6 +123,17 @@ export class TempoSession implements Session {
         `Timing ${Math.round(s.timingPct)}% within ±${TIMING_WINDOW_MS} ms, on average ${tendency}.`,
       "ok",
     );
-    this.onFinish();
+    this.onFinish({
+      mode: "tempo",
+      bpm: this.bpm,
+      duration_ms: Math.round(performance.now() - this.start),
+      total: s.total,
+      played: s.played,
+      missed: s.missed,
+      wrong: s.wrong,
+      note_pct: Math.round(s.notePct * 10) / 10,
+      timing_pct: Math.round(s.timingPct * 10) / 10,
+      mean_offset_ms: Math.round(s.meanOffset),
+    });
   }
 }

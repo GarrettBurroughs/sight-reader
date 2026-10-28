@@ -1,5 +1,6 @@
 // Wait mode: the cursor waits on each step until the right notes are held.
 
+import type { AttemptResult } from "./api";
 import { noteName } from "./midi";
 import type { Score, Step } from "./score";
 import { formatTime, OK_COLOR, SLIP_COLOR, type Session, type UI } from "./session";
@@ -10,6 +11,7 @@ export class WaitSession implements Session {
   private step: Step | null = null;
   private stepSlipped = false;
   private mistakes = 0;
+  private stepsDone = 0;
   private startedAt: number | null = null;
   private finishedAt: number | null = null;
   private timer: number;
@@ -17,6 +19,7 @@ export class WaitSession implements Session {
   constructor(
     private score: Score,
     private ui: UI,
+    private onFinish: (result: AttemptResult) => void = () => {},
   ) {
     score.restart();
     ui.message(null);
@@ -37,6 +40,7 @@ export class WaitSession implements Session {
       this.render();
     } else if (result === "complete") {
       this.score.color(this.step.notes, this.stepSlipped ? SLIP_COLOR : OK_COLOR);
+      this.stepsDone++;
       this.score.advance();
       this.enterStep();
     }
@@ -63,6 +67,12 @@ export class WaitSession implements Session {
           `with ${n} wrong note${n === 1 ? "" : "s"}.`,
         "ok",
       );
+      this.onFinish({
+        mode: "wait",
+        steps: this.stepsDone,
+        wrong: this.mistakes,
+        duration_ms: Math.round(this.finishedAt - (this.startedAt ?? this.finishedAt)),
+      });
     }
     this.render();
   }

@@ -1,4 +1,5 @@
 import "./style.css";
+import { api, type AttemptResult, type Excerpt, type Player } from "./api";
 import { unlockAudio } from "./audio";
 import { Calibration } from "./calibrate";
 import { isBlackKey, noteName, onDevices, onNote, startInput } from "./midi";
@@ -12,8 +13,6 @@ const LOW = 36; // C2
 const HIGH = 96; // C7
 
 type Mode = "wait" | "tempo";
-/** One excerpt exported by pipeline/export_web.py. */
-type LibraryEntry = { id: string; grade: number; title: string; composer: string | null; file: string };
 
 const $ = <T extends Element>(sel: string) => document.querySelector<T>(sel)!;
 const statusEl = $<HTMLDivElement>("#status");
@@ -25,7 +24,7 @@ const modeBtns = [...document.querySelectorAll<HTMLButtonElement>("[data-mode]")
 const bpmInput = $<HTMLInputElement>("#bpm");
 const goBtn = $<HTMLButtonElement>("#go");
 const calibrateBtn = $<HTMLButtonElement>("#calibrate");
-const libraryEl = $<HTMLSpanElement>("#library");
+const playerSel = $<HTMLSelectElement>("#player");
 const gradeSel = $<HTMLSelectElement>("#grade");
 const nextBtn = $<HTMLButtonElement>("#next");
 
@@ -36,8 +35,9 @@ let mode: Mode = load("mode") === "tempo" ? "tempo" : "wait";
 let latencyMs = Number(load("latencyMs") ?? 0) || 0;
 let session: Session | null = null;
 let tempoRunning = false;
-let library: LibraryEntry[] = [];
-let currentUrl = SCORE_URL;
+let players: Player[] = [];
+let player: Player | null = null;
+let excerpt: Excerpt | null = null; // the library excerpt on screen, or null for the test piece
 bpmInput.value = load("bpm") ?? "60";
 
 // ---- Saved settings (best effort: storage can be unavailable) ----
@@ -119,7 +119,8 @@ function setMode(next: Mode) {
   document.body.dataset.mode = mode;
   for (const b of modeBtns) b.setAttribute("aria-pressed", String(b.dataset.mode === mode));
   stopSession();
-  if (mode === "wait") session = new WaitSession(score, ui);
+  renderMusicOptions();
+  if (mode === "wait") session = new WaitSession(score, ui, saveAttempt);
   else {
     score.restart();
     ui.message(null);
@@ -149,7 +150,7 @@ goBtn.addEventListener("click", () => {
   goBtn.blur(); // keep the computer-keyboard fallback from "pressing" the button
   if (mode === "wait") {
     stopSession();
-    session = new WaitSession(score, ui);
+    session = new WaitSession(score, ui, saveAttempt);
   } else if (tempoRunning) {
     stopSession();
     ui.message("Stopped.", "info");
@@ -159,9 +160,10 @@ goBtn.addEventListener("click", () => {
     bpmInput.value = String(bpm());
     save("bpm", bpmInput.value);
     tempoRunning = true;
-    session = new TempoSession(score, ui, bpm(), latencyMs, () => {
+    session = new TempoSession(score, ui, bpm(), latencyMs, (result) => {
       tempoRunning = false;
       renderControls();
+      saveAttempt(result);
     });
   }
   renderControls();
@@ -189,33 +191,52 @@ for (const b of modeBtns) {
   });
 }
 
-// ---- Music: the built-in test piece, or excerpts exported from the pipeline ----
-async function loadLibrary() {
+// ---- Players, music and results (via the API server) ----
+async function loadPlayers() {
   try {
-    const res = await fetch("/library/index.json");
-    if (res.ok) library = await res.json();
+    players = await api.players();
+    if (players.length === 0) players = [await api.createPlayer("Player 1")];
   } catch {
-    // no library exported yet; the test piece still works
+    players = []; // no server: only the test piece
   }
-  const options: [string, string][] = [["test", "Test piece (Minuet)"]];
-  for (const g of [...new Set(library.map((e) => e.grade))].sort((a, b) => a - b)) options.push([String(g), `Grade ${g}`]);
-  gradeSel.replaceChildren(...options.map(([value, label]) => new Option(label, value)));
-  const saved = load("grade");
-  gradeSel.value = saved && options.some(([v]) => v === saved) ? saved : "test";
-  libraryEl.hidden = library.length === 0;
+  playerSel.replaceChildren(...players.map((p) => new Option(p.name, String(p.id))));
+  const saved = Number(load("player"));
+  player = players.find((p) => p.id === saved) ?? players[0] ?? null;
+  if (player) playerSel.value = String(player.id);
+  playerSel.hidden = players.length < 2;
+  renderMusicOptions();
 }
 
-/** Open a random excerpt of the chosen grade (not the one already open), or the test piece. */
-function pickPiece() {
-  const pool = library.filter((e) => String(e.grade) === gradeSel.value && `/${e.file}` !== currentUrl);
-  const entry = pool[Math.floor(Math.random() * pool.length)];
-  return openScore(entry ? `/${entry.file}` : SCORE_URL);
+function renderMusicOptions() {
+  const value = gradeSel.value || load("music") || "auto";
+  const options: [string, string][] = [];
+  if (player) {
+    options.push(["auto", `Auto (level ${player.levels[mode].toFixed(1)})`]);
+    for (let g = 1; g <= 9; g++) options.push([String(g), `Grade ${g}`]);
+  }
+  options.push(["test", "Test piece (Minuet)"]);
+  gradeSel.replaceChildren(...options.map(([v, label]) => new Option(label, v)));
+  gradeSel.value = options.some(([v]) => v === value) ? value : options[0][0];
+  nextBtn.hidden = !player;
 }
 
-async function openScore(url: string) {
+/** Ask the server for the next excerpt (by level, or a fixed grade), or open the test piece. */
+async function pickPiece() {
+  stopSession();
+  if (!player || gradeSel.value === "test") return openScore(SCORE_URL, null);
+  try {
+    const grade = gradeSel.value === "auto" ? undefined : Number(gradeSel.value);
+    const { excerpt: next } = await api.next(player.id, mode, grade);
+    await openScore(next.score_url, next);
+  } catch (err) {
+    ui.message(`Couldn't get a piece: ${err instanceof Error ? err.message : err}`);
+  }
+}
+
+async function openScore(url: string, next: Excerpt | null) {
   stopSession();
   ui.message(null);
-  currentUrl = url;
+  excerpt = next;
   try {
     await score.load(url);
     setMode(mode);
@@ -224,9 +245,36 @@ async function openScore(url: string) {
   }
 }
 
+/** Record a finished run and show how the level moved. Test-piece runs aren't recorded. */
+async function saveAttempt(result: AttemptResult) {
+  if (!player || !excerpt) return;
+  const finished = messageEl.textContent ?? "";
+  try {
+    const change = await api.recordAttempt(player.id, excerpt.id, result);
+    player.levels[result.mode] = change.level_after;
+    const arrow = change.level_after > change.level_before ? "▲" : change.level_after < change.level_before ? "▼" : "→";
+    ui.message(
+      `${finished} ${result.mode === "wait" ? "Wait" : "Tempo"} level ${change.level_before.toFixed(2)} ${arrow} ` +
+        `${change.level_after.toFixed(2)} (grade ${excerpt.grade} piece, ${Math.round(change.performance * 100)}%).`,
+      "ok",
+    );
+    renderMusicOptions();
+  } catch (err) {
+    ui.message(`${finished} (Not saved: ${err instanceof Error ? err.message : err})`, "ok");
+  }
+}
+
+playerSel.addEventListener("change", () => {
+  playerSel.blur();
+  player = players.find((p) => String(p.id) === playerSel.value) ?? null;
+  if (player) save("player", String(player.id));
+  renderMusicOptions();
+  pickPiece();
+});
+
 gradeSel.addEventListener("change", () => {
   gradeSel.blur();
-  save("grade", gradeSel.value);
+  save("music", gradeSel.value);
   pickPiece();
 });
 
@@ -259,4 +307,17 @@ renderControls();
 startInput().then((msg) => {
   if (statusEl.textContent === "Loading…") statusEl.textContent = msg;
 });
-loadLibrary().then(() => pickPiece());
+loadPlayers().then(async () => {
+  // The admin panel's "Play this excerpt" links here with ?excerpt=<id>.
+  const requested = new URLSearchParams(location.search).get("excerpt");
+  if (requested && player) {
+    history.replaceState(null, "", location.pathname);
+    try {
+      const ex = await api.excerpt(requested);
+      return openScore(ex.score_url, ex);
+    } catch {
+      // fall through to a normal pick
+    }
+  }
+  return pickPiece();
+});
