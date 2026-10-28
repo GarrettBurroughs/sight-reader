@@ -84,7 +84,7 @@ What `catalog.py` does:
 2. **Keeps solo piano** that really is: one part, two staves (treble/bass clefs), both hands playing.
 3. **Cuts up to 4 excerpts of 8 bars** per piece, on 8-bar boundaries, skipping windows with volta endings, D.S./coda jumps, multi-bar rests, meter changes, mostly-empty bars, or bars that don't add up.
 4. **Measures difficulty** (`features.py`): note density, left-hand busyness, chords and stretches, leaps, shortest note value, syncopation, tuplets, accidentals, key signature, ledger lines, voices per hand, tempo when marked.
-5. **Grades 1–9** by where each excerpt's difficulty falls across the library (equal-sized bands), and writes `data/library/library.sqlite` plus one `.mxl` per excerpt. Each piece keeps its `no_license_conflict` flag for filtering.
+5. **Grades 1–9** with fixed cutoffs on the difficulty score, fitted so well-known pieces land near their usual Henle level (`python3 anchors.py` prints the check), and writes `data/library/library.sqlite` plus one `.mxl` per excerpt. Each piece keeps its `no_license_conflict` flag for filtering.
 
 ## 5. Run the server and admin panel
 
