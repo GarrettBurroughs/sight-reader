@@ -2,8 +2,10 @@
 
     server/.venv/bin/uvicorn app:create_app --factory --app-dir server --port 8000
 
-The web dev server proxies /api here. Player data lives in server/data/app.sqlite;
-the excerpt library (read-only) comes from pipeline/data/library.
+Locally the web dev server proxies /api here. In the cloud image this also serves the built
+web app (SIGHTREADER_STATIC), requires a password (SIGHTREADER_PASSWORD), and keeps the
+player database replicated to GCS (SIGHTREADER_BUCKET, see persistence.py). Player data
+lives in server/data/app.sqlite; the excerpt library (read-only) comes from pipeline/data/library.
 """
 
 from __future__ import annotations
@@ -13,15 +15,20 @@ import os
 import random
 import sqlite3
 import sys
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
+import anyio
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import levels
+from auth import Auth
+from persistence import Persistence
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipeline"))
@@ -117,7 +124,12 @@ class AttemptIn(BaseModel):
     mean_offset_ms: float | None = None
 
 
-def create_app(app_db: Path | None = None, library_dir: Path | None = None, license_only: bool | None = None) -> FastAPI:
+READY_WAIT_SECONDS = 25  # how long a request waits for the database while an instance starts
+
+
+def create_app(app_db: Path | None = None, library_dir: Path | None = None, license_only: bool | None = None,
+               persistence: Persistence | None = None, auth: Auth | None = None,
+               static_dir: Path | None = None) -> FastAPI:
     app_db = Path(app_db or os.environ.get("SIGHTREADER_DB", ROOT / "server" / "data" / "app.sqlite"))
     library_dir = Path(library_dir or os.environ.get("SIGHTREADER_LIBRARY", ROOT / "pipeline" / "data" / "library"))
     if license_only is None:
@@ -126,23 +138,56 @@ def create_app(app_db: Path | None = None, library_dir: Path | None = None, lice
     if not library_db.exists():
         raise SystemExit(f"No library at {library_db}; run pipeline/catalog.py first.")
     app_db.parent.mkdir(parents=True, exist_ok=True)
+    static_dir = static_dir or (Path(os.environ["SIGHTREADER_STATIC"]) if os.environ.get("SIGHTREADER_STATIC") else None)
+    auth = auth or Auth(os.environ.get("SIGHTREADER_PASSWORD"), os.environ.get("SIGHTREADER_SESSION_KEY"),
+                        secure_cookie=os.environ.get("SIGHTREADER_SECURE_COOKIE") == "1")
 
     def connect() -> sqlite3.Connection:
         # uri=True so the library can be attached read-only with a file: URI.
         db = sqlite3.connect(f"file:{app_db}", uri=True)
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA foreign_keys = ON")
+        db.execute("PRAGMA busy_timeout = 5000")
         db.execute("ATTACH DATABASE ? AS lib", (f"file:{library_db}?mode=ro",))
         return db
 
-    with connect() as db:
-        db.executescript(SCHEMA)
-        for table, columns in ADDED_COLUMNS.items():
-            existing = {row["name"] for row in db.execute(f"PRAGMA table_info({table})")}
-            for name, decl in columns.items():
-                if name not in existing:
-                    db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
-    app = FastAPI(title="Sight Reader")
+    def init_db() -> None:
+        with connect() as db:
+            db.execute("PRAGMA main.journal_mode = WAL")  # Litestream replicates the WAL (not the read-only library)
+            db.executescript(SCHEMA)
+            for table, columns in ADDED_COLUMNS.items():
+                existing = {row["name"] for row in db.execute(f"PRAGMA table_info({table})")}
+                for name, decl in columns.items():
+                    if name not in existing:
+                        db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+
+    persistence = persistence or Persistence.from_env(app_db, init_db)
+    if not persistence.bucket:
+        persistence.start()  # local: ready at once, without waiting for the startup hook
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        persistence.start()
+        yield
+        persistence.stop()
+
+    app = FastAPI(title="Sight Reader", lifespan=lifespan)
+
+    @app.middleware("http")
+    async def wait_for_database(request: Request, call_next):
+        """Hold API requests while a new instance takes over the database (see persistence.py)."""
+        if request.url.path.startswith("/api/") and request.url.path != "/api/health" and not persistence.ready.is_set():
+            ready = await anyio.to_thread.run_sync(persistence.ready.wait, READY_WAIT_SECONDS)
+            if not ready:
+                return JSONResponse({"detail": "Starting up; try again in a moment"}, status_code=503)
+        return await call_next(request)
+
+    auth.install(app)  # added last, so it runs first
+
+    @app.get("/api/health")
+    def health():
+        return {"ok": persistence.failed is None, "ready": persistence.ready.is_set(),
+                "version": os.environ.get("SIGHTREADER_VERSION", "dev"), "error": persistence.failed}
 
     def license_clause(only: bool | None) -> str:
         return "AND p.no_license_conflict = 1" if (license_only if only is None else only) else ""
@@ -385,6 +430,9 @@ def create_app(app_db: Path | None = None, library_dir: Path | None = None, lice
                 "license_only": license_only,
                 "grades": [dict(g) for g in grades],
             }
+
+    if static_dir:
+        app.mount("/", StaticFiles(directory=static_dir, html=True), name="web")  # after the API routes
 
     return app
 

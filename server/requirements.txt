@@ -1,5 +1,3 @@
 fastapi==0.143.0
 uvicorn==0.54.0
-# tests
-httpx==0.28.1
-pytest==9.1.1
+google-cloud-storage==3.17.0  # Litestream lock (persistence.py)

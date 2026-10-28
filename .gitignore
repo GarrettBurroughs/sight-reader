@@ -9,3 +9,4 @@ pipeline/.venv/
 __pycache__/
 server/.venv/
 server/data/
+build/

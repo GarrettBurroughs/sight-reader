@@ -8,6 +8,7 @@ sight-reader/
   pipeline/  Python (standard library only): builds the graded excerpt library from PDMX.
   server/    FastAPI + SQLite: serves excerpts, records attempts, tracks player levels.
   dev.sh     Starts the API server and the web dev server together.
+  deploy/    GCP deployment scripts (Cloud Run); .github/workflows/ runs them.
   ipad/   iPad shell: SightReader.swiftpm, a Swift Playgrounds app project.
 ```
 
@@ -109,6 +110,36 @@ This starts the API on `127.0.0.1:8000` (local only) and Vite on port 5173; Vite
 - **Hands switch (Both / Right / Left):** one-hand practice expects only that hand's notes and greys out the other staff. It serves pieces where that hand has at least two notes a bar, and keeps its own level per hand and mode (starting one grade above your hands-together level), so drills don't inflate the hands-together level. Hands-together runs record wrong notes (and tempo-mode misses) per hand; the admin player page totals them under "Which hand slips".
 - **Admin panel** (`/admin.html`, or the Admin link): browse and filter the library, open any excerpt to see it rendered with its grade breakdown and attempts, play it, and manage players (levels, names, full attempt history, delete).
 - Tests: `server/.venv/bin/python -m pytest server/tests`.
+
+## 6. Cloud deployment (GCP)
+
+```
+ push to main ──► GitHub Actions: tests ─► build image ─► Artifact Registry ─► Cloud Run: sight-reader-staging
+ deploy/promote.sh ──► same image (by digest, no rebuild) ──────────────────► Cloud Run: sight-reader-prod
+```
+
+- **One container per environment** serves the web app, the API and the excerpt library (baked in). Cloud Run scales it to zero when idle; the first request after a pause takes a few seconds.
+- **Player data** is SQLite on the instance, replicated continuously to that environment's bucket by Litestream (`server/persistence.py`). Each service runs at most one instance. During a deploy the new instance waits on a lock in the bucket until the old one has done its final sync, so no saved run is lost; API calls are held (up to 25 s) meanwhile.
+- **Login**: one password per environment (Secret Manager); a year-long cookie keeps the iPad logged in. `/api/health` stays open for checks. Locally there's no password.
+- **The library** is published as a versioned tarball (`deploy/publish-library.sh` → `library.version`, commit it); CI bakes the named version into the image, so promoting also promotes the library.
+- **GitHub → GCP** uses Workload Identity Federation: only this repo's workflows can deploy, with no stored keys.
+
+One-time setup (needs `gcloud` and `gh` logged in; read the script first, it lists everything it creates):
+
+```bash
+deploy/bootstrap.sh          # APIs, image repo, buckets, service accounts, secrets (asks for passwords), WIF, GitHub variables
+deploy/publish-library.sh    # upload the current library, write library.version
+git add library.version && git commit -m "Publish library" && git push   # first staging deploy
+```
+
+Day to day:
+
+```bash
+git push                     # tests, then deploy to staging (watch: gh run watch)
+deploy/promote.sh            # staging's image -> prod
+```
+
+Rolling back: promote an older image by re-running an older Staging workflow run and then promoting, or pick a previous revision in the Cloud Run console. After a pipeline change, re-run `catalog.py`, `publish-library.sh`, commit `library.version`, push.
 
 ## Troubleshooting
 
