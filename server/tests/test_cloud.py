@@ -125,6 +125,8 @@ def test_password_login(tmp_path, library):
 
     assert c.get("/api/health").status_code == 200  # open, for Cloud Run checks
     assert c.get("/api/players").status_code == 401
+    r = c.get("/api/ipad-app.zip", headers={"Accept": "text/html"}, follow_redirects=False)  # a link in a browser
+    assert r.status_code == 303 and r.headers["location"] == "/login?next=/api/ipad-app.zip"
     r = c.get("/", follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"] == "/login?next=/"
 

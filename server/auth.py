@@ -53,7 +53,10 @@ class Auth:
         async def require_login(request: Request, call_next):
             if not self.enabled or request.url.path in OPEN_PATHS or self.valid(request.cookies.get(COOKIE)):
                 return await call_next(request)
-            if request.url.path.startswith("/api/"):
+            # Scripts calling the API get a 401; a browser opening a link (even an /api one, like the
+            # iPad app download) goes to the login page and comes back after.
+            browsing = request.method == "GET" and "text/html" in request.headers.get("accept", "")
+            if request.url.path.startswith("/api/") and not browsing:
                 return JSONResponse({"detail": "Not logged in"}, status_code=401)
             target = request.url.path + (f"?{request.url.query}" if request.url.query else "")
             return RedirectResponse(f"/login?next={quote(target)}", status_code=303)
