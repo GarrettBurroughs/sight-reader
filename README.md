@@ -4,7 +4,8 @@ Milestone 1 from the design doc: prove that notes from your MIDI keyboard reach 
 
 ```
 sight-reader/
-  web/    Web client (Vite + TypeScript). Runs on your PC.
+  web/       Web client (Vite + TypeScript). Runs on your PC.
+  pipeline/  Python (standard library only): builds the graded excerpt library from PDMX.
   ipad/   iPad shell: SightReader.swiftpm, a Swift Playgrounds app project.
 ```
 
@@ -60,6 +61,29 @@ Play a few notes. You should see the note names, the on-screen keyboard light up
 - Edit files in `web/` on your PC. Saving reloads the page on the iPad automatically.
 - The Swift shell should rarely change. When it does, run `ipad/package.sh` again and reopen the new copy (delete the old one in Playgrounds first).
 - The address you typed is remembered between launches.
+
+## 4. Build the music library (pipeline)
+
+Turns PDMX (public-domain MusicXML from MuseScore) into graded 8-bar piano excerpts. Python 3.10+, no packages to install. Everything lands in `pipeline/data/` (git-ignored).
+
+```bash
+cd ~/dev/sight-reader/pipeline
+mkdir -p data/raw data/pdmx && cd data/raw
+for f in PDMX.csv subset_paths.tar.gz mxl.tar.gz; do curl -L -C - -o "$f" "https://zenodo.org/api/records/15571083/files/$f/content"; done
+tar xzf mxl.tar.gz -C ../pdmx && tar xzf subset_paths.tar.gz -C ../pdmx
+cd ../..
+python3 catalog.py                 # all solo piano scores; add --no-license-conflict-only to skip flagged ones
+python3 export_web.py              # copy 30 excerpts per grade into web/public/library for the page's grade picker
+python3 -m unittest discover -s tests
+```
+
+What `catalog.py` does:
+
+1. **Selects** PDMX rows with one piano track, valid and deduplicated (PDMX keeps the best of many uploads of the same piece).
+2. **Keeps solo piano** that really is: one part, two staves (treble/bass clefs), both hands playing.
+3. **Cuts up to 4 excerpts of 8 bars** per piece, on 8-bar boundaries, skipping windows with volta endings, D.S./coda jumps, multi-bar rests, meter changes, mostly-empty bars, or bars that don't add up.
+4. **Measures difficulty** (`features.py`): note density, left-hand busyness, chords and stretches, leaps, shortest note value, syncopation, tuplets, accidentals, key signature, ledger lines, voices per hand, tempo when marked.
+5. **Grades 1–9** by where each excerpt's difficulty falls across the library (equal-sized bands), and writes `data/library/library.sqlite` plus one `.mxl` per excerpt. Each piece keeps its `no_license_conflict` flag for filtering.
 
 ## Troubleshooting
 

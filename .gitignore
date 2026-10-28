@@ -4,3 +4,7 @@ dist/
 .DS_Store
 *.log
 ipad/build/
+pipeline/data/
+pipeline/.venv/
+__pycache__/
+web/public/library/

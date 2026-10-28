@@ -12,6 +12,8 @@ const LOW = 36; // C2
 const HIGH = 96; // C7
 
 type Mode = "wait" | "tempo";
+/** One excerpt exported by pipeline/export_web.py. */
+type LibraryEntry = { id: string; grade: number; title: string; composer: string | null; file: string };
 
 const $ = <T extends Element>(sel: string) => document.querySelector<T>(sel)!;
 const statusEl = $<HTMLDivElement>("#status");
@@ -23,6 +25,9 @@ const modeBtns = [...document.querySelectorAll<HTMLButtonElement>("[data-mode]")
 const bpmInput = $<HTMLInputElement>("#bpm");
 const goBtn = $<HTMLButtonElement>("#go");
 const calibrateBtn = $<HTMLButtonElement>("#calibrate");
+const libraryEl = $<HTMLSpanElement>("#library");
+const gradeSel = $<HTMLSelectElement>("#grade");
+const nextBtn = $<HTMLButtonElement>("#next");
 
 const keyEls = new Map<number, HTMLDivElement>();
 const score = new Score(scoreEl);
@@ -31,6 +36,8 @@ let mode: Mode = load("mode") === "tempo" ? "tempo" : "wait";
 let latencyMs = Number(load("latencyMs") ?? 0) || 0;
 let session: Session | null = null;
 let tempoRunning = false;
+let library: LibraryEntry[] = [];
+let currentUrl = SCORE_URL;
 bpmInput.value = load("bpm") ?? "60";
 
 // ---- Saved settings (best effort: storage can be unavailable) ----
@@ -182,6 +189,52 @@ for (const b of modeBtns) {
   });
 }
 
+// ---- Music: the built-in test piece, or excerpts exported from the pipeline ----
+async function loadLibrary() {
+  try {
+    const res = await fetch("/library/index.json");
+    if (res.ok) library = await res.json();
+  } catch {
+    // no library exported yet; the test piece still works
+  }
+  const options: [string, string][] = [["test", "Test piece (Minuet)"]];
+  for (const g of [...new Set(library.map((e) => e.grade))].sort((a, b) => a - b)) options.push([String(g), `Grade ${g}`]);
+  gradeSel.replaceChildren(...options.map(([value, label]) => new Option(label, value)));
+  const saved = load("grade");
+  gradeSel.value = saved && options.some(([v]) => v === saved) ? saved : "test";
+  libraryEl.hidden = library.length === 0;
+}
+
+/** Open a random excerpt of the chosen grade (not the one already open), or the test piece. */
+function pickPiece() {
+  const pool = library.filter((e) => String(e.grade) === gradeSel.value && `/${e.file}` !== currentUrl);
+  const entry = pool[Math.floor(Math.random() * pool.length)];
+  return openScore(entry ? `/${entry.file}` : SCORE_URL);
+}
+
+async function openScore(url: string) {
+  stopSession();
+  ui.message(null);
+  currentUrl = url;
+  try {
+    await score.load(url);
+    setMode(mode);
+  } catch (err) {
+    ui.message(`Couldn't load ${url}: ${err}`);
+  }
+}
+
+gradeSel.addEventListener("change", () => {
+  gradeSel.blur();
+  save("grade", gradeSel.value);
+  pickPiece();
+});
+
+nextBtn.addEventListener("click", () => {
+  nextBtn.blur();
+  pickPiece();
+});
+
 // ---- Input ----
 onNote((e) => {
   const key = keyEls.get(e.note);
@@ -206,9 +259,4 @@ renderControls();
 startInput().then((msg) => {
   if (statusEl.textContent === "Loading…") statusEl.textContent = msg;
 });
-score
-  .load(SCORE_URL)
-  .then(() => setMode(mode))
-  .catch((err) => {
-    scoreEl.textContent = `Couldn't load ${SCORE_URL}: ${err}`;
-  });
+loadLibrary().then(() => pickPiece());

@@ -62,7 +62,7 @@ main { display: grid; gap: 16px; margin-top: 12px; }
   color: var(--quiet);
 }
 
-button, input {
+button, input, select {
   font: inherit;
   color: var(--ink);
   background: var(--card);

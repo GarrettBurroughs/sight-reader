@@ -28,6 +28,7 @@ export class Score {
   }
 
   async load(url: string) {
+    this.colored = [];
     await this.osmd.load(url);
     this.osmd.render();
     this.osmd.cursor.show();
