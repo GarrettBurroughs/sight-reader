@@ -5,6 +5,8 @@
   --line: #d8d3c8;
   --accent: #2f6fde;
   --ok: #2e8b57;
+  --bad: #d64545;
+  --card: #fff;
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   color: var(--ink);
   background: var(--bg);
@@ -16,6 +18,7 @@
     --ink: #efece6;
     --quiet: #a29c91;
     --line: #3a3732;
+    --card: #26241f;
   }
 }
 
@@ -34,29 +37,63 @@ h1 { font-size: 22px; margin: 0; }
 #status { color: var(--quiet); font-size: 14px; }
 #status.ok { color: var(--ok); }
 
-main { display: grid; gap: 24px; margin-top: 24px; }
+main { display: grid; gap: 16px; margin-top: 12px; }
 
-.label {
+.toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin-top: 12px;
+  font-size: 15px;
+  color: var(--quiet);
+}
+.toolbar strong { color: var(--ink); font-variant-numeric: tabular-nums; }
+.toolbar .mode {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--quiet);
-  margin-bottom: 6px;
+  color: var(--accent);
+  font-weight: 600;
 }
 
-#held {
-  font-size: 56px;
-  font-weight: 650;
-  min-height: 68px;
-  font-variant-numeric: tabular-nums;
+button {
+  margin-left: auto;
+  font: inherit;
+  padding: 6px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
 }
+
+#done {
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--ok);
+  color: #fff;
+  font-weight: 600;
+}
+
+/* ---- Score ---- */
+#score {
+  background: #fff; /* OSMD draws black notation, so keep the page white in dark mode too */
+  border-radius: 10px;
+  border: 2px solid transparent;
+  min-height: 200px;
+  overflow: hidden;
+  color: #000;
+}
+#score.wrong { animation: wrong-border 400ms ease-out; }
+@keyframes wrong-border { from { border-color: var(--bad); } to { border-color: transparent; } }
 
 /* ---- Piano ---- */
 #piano {
   --w: calc(100% / var(--whites));
   --bw: calc(var(--w) * 0.6);
   position: relative;
-  height: 160px;
+  height: 110px;
   width: 100%;
 }
 
@@ -88,20 +125,7 @@ main { display: grid; gap: 24px; margin-top: 24px; }
 }
 
 .key.down { background: var(--accent) !important; color: #fff; }
+.key.wrong { animation: wrong-key 400ms ease-out; }
+@keyframes wrong-key { from { background: var(--bad); } }
 
-/* ---- Log ---- */
-#log {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  font-family: ui-monospace, "Cascadia Mono", Menlo, monospace;
-  font-size: 14px;
-  max-height: 260px;
-  overflow: hidden;
-}
-
-#log li { padding: 2px 0; white-space: pre; }
-#log li.off { color: var(--quiet); }
-
-footer { margin-top: 24px; font-size: 13px; color: var(--quiet); }
 code { font-size: 12px; }
