@@ -19,7 +19,7 @@ export type Summary = {
   ontime: number;
   missed: number;
   wrong: number;
-  notePct: number; // right notes as a share of expected notes plus wrong presses
+  notePct: number; // right notes as a share of notes judged so far plus wrong presses
   timingPct: number; // played notes that landed inside the timing window
   meanOffset: number; // ms, positive = late
 };
@@ -77,13 +77,14 @@ export class TempoScorer {
       if (r.judgement === "ontime") ontime++;
     }
     const total = this.expected.length;
+    const judged = this.results.size + this.wrong;
     return {
       total,
       played,
       ontime,
       missed,
       wrong: this.wrong,
-      notePct: total + this.wrong ? (100 * played) / (total + this.wrong) : 0,
+      notePct: judged ? (100 * played) / judged : 0,
       timingPct: played ? (100 * ontime) / played : 0,
       meanOffset: played ? offsetSum / played : 0,
     };

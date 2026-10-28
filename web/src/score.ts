@@ -102,13 +102,53 @@ export class Score {
     return { measure: it.CurrentMeasureIndex + 1, total: this.osmd.Sheet.SourceMeasures.length };
   }
 
+  /** Colour whole notes (head, stem, flag) of these notes' chords. */
   color(notes: Note[], color: string) {
     for (const n of notes) {
-      const g = (this.osmd.EngravingRules.GNote(n) as VexFlowGraphicalNote | undefined)?.getSVGGElement();
+      const g = this.group(n);
       if (!g) continue;
       setColor(g, color);
       this.colored.push(g);
     }
+  }
+
+  /**
+   * Colour each note on its own. A chord's stem and flag take the worst colour among its
+   * notes once they are all judged; until then only the judged noteheads are coloured.
+   * `color: null` means not judged yet.
+   */
+  colorEach(entries: { note: Note; color: string | null; severity: number }[]) {
+    const groups = new Map<SVGGElement, typeof entries>();
+    for (const e of entries) {
+      const g = this.group(e.note);
+      if (!g) continue;
+      groups.set(g, [...(groups.get(g) ?? []), e]);
+    }
+    for (const [g, members] of groups) {
+      if (members.every((m) => m.color !== null)) {
+        const worst = members.reduce((a, b) => (b.severity > a.severity ? b : a));
+        setColor(g, worst.color);
+      }
+      for (const m of members) {
+        const head = m.color && this.head(m.note);
+        if (head) setColor(head, m.color);
+      }
+      this.colored.push(g);
+    }
+  }
+
+  private gnote(n: Note) {
+    return this.osmd.EngravingRules.GNote(n) as VexFlowGraphicalNote | undefined;
+  }
+
+  private group(n: Note): SVGGElement | undefined {
+    return this.gnote(n)?.getSVGGElement() ?? undefined;
+  }
+
+  /** The notehead of this note within its chord (VexFlow draws heads in chord-key order). */
+  private head(n: Note): SVGElement | undefined {
+    const g = this.gnote(n);
+    return g?.getNoteheadSVGs()[g.vfnoteIndex] as SVGElement | undefined;
   }
 }
 
@@ -119,7 +159,7 @@ function isPlayable(n: Note) {
 }
 
 /** OSMD's halfTone counts from C0 at 0, MIDI counts from C-1, so MIDI is 12 higher. */
-function toMidi(n: Note) {
+export function toMidi(n: Note) {
   return n.halfTone + 12;
 }
 

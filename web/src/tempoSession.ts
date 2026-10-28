@@ -2,12 +2,14 @@
 // moves at the set tempo whether or not you play. Notes and timing are scored separately.
 
 import { Clicks } from "./audio";
-import type { Score, TimedStep } from "./score";
+import { toMidi, type Score, type TimedStep } from "./score";
 import { MISS_COLOR, OK_COLOR, SLIP_COLOR, type Session, type UI } from "./session";
 import { TempoScorer, type Expected, type Judgement } from "./tempoMode";
 
 const TIMING_WINDOW_MS = 100;
-const LEAD_IN_MS = 400; // time to get the audio scheduled before the first count-in click
+const LEAD_IN_MS = 400;
+const SEVERITY: Judgement[] = ["ontime", "early", "late", "missed"];
+const COLORS: Record<Judgement, string> = { ontime: OK_COLOR, early: SLIP_COLOR, late: SLIP_COLOR, missed: MISS_COLOR }; // time to get the audio scheduled before the first count-in click
 
 export class TempoSession implements Session {
   private steps: TimedStep[];
@@ -15,8 +17,7 @@ export class TempoSession implements Session {
   private clicks = new Clicks();
   private beatMs: number;
   private start: number; // performance.now() time of the first beat of the piece
-  private pending: number[]; // notes per step not yet judged
-  private worst: Judgement[]; // worst judgement so far per step
+  private expectedBySteps: Expected[][]; // the scorer's notes, grouped by step
   private shownStep = -1;
   private raf = 0;
   private done = false;
@@ -35,8 +36,8 @@ export class TempoSession implements Session {
     );
     // A press can be matched up to half a beat away; beyond that it's a wrong note.
     this.scorer = new TempoScorer(expected, TIMING_WINDOW_MS, Math.min(this.beatMs / 2, 400));
-    this.pending = this.steps.map((s) => s.midi.length);
-    this.worst = this.steps.map(() => "ontime");
+    this.expectedBySteps = this.steps.map(() => []);
+    for (const e of expected) this.expectedBySteps[e.step].push(e);
 
     score.restart();
     ui.message(null);
@@ -53,7 +54,7 @@ export class TempoSession implements Session {
     if (this.done) return;
     const result = this.scorer.noteOn(note, t - this.start - this.latencyMs);
     if (result.kind === "wrong") this.ui.wrong(note);
-    else this.judged(result.note, result.judgement);
+    else this.judged(result.note);
     this.render();
   }
 
@@ -76,7 +77,7 @@ export class TempoSession implements Session {
       this.score.seek(this.steps[target].beat);
     }
 
-    for (const e of this.scorer.expire(now - this.latencyMs)) this.judged(e, "missed");
+    for (const e of this.scorer.expire(now - this.latencyMs)) this.judged(e);
     this.render(now);
 
     const last = this.steps.at(-1);
@@ -84,13 +85,15 @@ export class TempoSession implements Session {
     else this.raf = requestAnimationFrame(this.tick);
   };
 
-  private judged(note: Expected, judgement: Judgement) {
-    const rank: Judgement[] = ["ontime", "early", "late", "missed"];
-    if (rank.indexOf(judgement) > rank.indexOf(this.worst[note.step])) this.worst[note.step] = judgement;
-    if (--this.pending[note.step] > 0) return;
-    const worst = this.worst[note.step];
-    const color = worst === "ontime" ? OK_COLOR : worst === "missed" ? MISS_COLOR : SLIP_COLOR;
-    this.score.color(this.steps[note.step].notes, color);
+  /** Recolour a step's notes, each by its own judgement (left and right hand are judged apart). */
+  private judged(note: Expected) {
+    const byMidi = new Map(this.expectedBySteps[note.step].map((e) => [e.midi, e]));
+    this.score.colorEach(
+      this.steps[note.step].notes.map((n) => {
+        const r = this.scorer.results.get(byMidi.get(toMidi(n))!);
+        return { note: n, color: r ? COLORS[r.judgement] : null, severity: r ? SEVERITY.indexOf(r.judgement) : -1 };
+      }),
+    );
   }
 
   private render(now = performance.now() - this.start) {

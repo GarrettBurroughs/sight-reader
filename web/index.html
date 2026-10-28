@@ -6,23 +6,25 @@
     <title>Sight Reader</title>
   </head>
   <body data-mode="wait">
-    <header>
-      <h1>Sight Reader</h1>
-      <div id="status">Loading…</div>
-    </header>
+    <div class="top">
+      <header>
+        <h1>Sight Reader</h1>
+        <div id="status">Loading…</div>
+      </header>
 
-    <div class="toolbar">
-      <div class="modes">
-        <button type="button" data-mode="wait" aria-pressed="true">Wait</button>
-        <button type="button" data-mode="tempo" aria-pressed="false">Tempo</button>
+      <div class="toolbar">
+        <div class="modes">
+          <button type="button" data-mode="wait" aria-pressed="true">Wait</button>
+          <button type="button" data-mode="tempo" aria-pressed="false">Tempo</button>
+        </div>
+        <label class="tempo-only">BPM <input id="bpm" type="number" min="30" max="200" step="5" inputmode="numeric" /></label>
+        <button id="go" type="button">Restart</button>
+        <button id="calibrate" type="button" class="tempo-only">Calibrate</button>
       </div>
-      <label class="tempo-only">BPM <input id="bpm" type="number" min="30" max="200" step="5" inputmode="numeric" /></label>
-      <button id="go" type="button">Restart</button>
-      <button id="calibrate" type="button" class="tempo-only">Calibrate</button>
-    </div>
 
-    <div id="stats"></div>
-    <div id="message" hidden></div>
+      <div id="stats"></div>
+      <div id="message" hidden></div>
+    </div>
 
     <main>
       <div id="score"></div>

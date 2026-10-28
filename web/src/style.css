@@ -24,12 +24,25 @@
 
 * { box-sizing: border-box; }
 
+html { scroll-padding-top: 160px; } /* keep the followed cursor clear of the pinned top bar */
+
 body {
   margin: 0;
-  padding: max(16px, env(safe-area-inset-top)) 24px 24px;
+  padding: 0 24px 24px;
   background: var(--bg);
   -webkit-user-select: none;
   user-select: none;
+}
+
+/* Pinned so Restart/Stop stay reachable while the score scrolls along with the cursor. */
+.top {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  margin: 0 -24px;
+  padding: max(16px, env(safe-area-inset-top)) 24px 12px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
 }
 
 header { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }

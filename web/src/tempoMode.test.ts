@@ -45,4 +45,10 @@ describe("TempoScorer", () => {
     expect(s.summary().timingPct).toBeCloseTo(66.67, 1);
     expect(s.summary().meanOffset).toBeCloseTo(66.67, 1);
   });
+
+  it("scores notes only against what has come up so far", () => {
+    const s = new TempoScorer(notes([0, 60, 0], [1, 62, 1000], [2, 64, 2000]), 100, 300);
+    s.noteOn(60, 0);
+    expect(s.summary().notePct).toBe(100);
+  });
 });
