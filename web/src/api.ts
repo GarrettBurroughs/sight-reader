@@ -29,6 +29,7 @@ export type Excerpt = {
   key_fifths: number;
   notes_per_quarter: number;
   no_license_conflict: boolean;
+  source: "pdmx" | "generated";
   score_url: string;
 };
 
@@ -93,6 +94,7 @@ export type Summary = {
   excerpts: number;
   players: number;
   attempts: number;
+  generated: number;
   license_only: boolean;
   grades: { grade: number; excerpts: number; license_ok: number; pieces: number }[];
 };
@@ -137,7 +139,7 @@ export const api = {
   recordAttempt: (playerId: number, excerptId: string, result: AttemptResult) =>
     call<LevelChange>("POST", "/api/attempts", { player_id: playerId, excerpt_id: excerptId, ...result }),
   excerpt: (id: string) => call<ExcerptDetail>("GET", `/api/excerpts/${encodeURIComponent(id)}`),
-  library: (params: { grade?: number; q?: string; license_only?: boolean; sort?: string; order?: string; limit?: number; offset?: number }) =>
+  library: (params: { grade?: number; q?: string; source?: string; license_only?: boolean; sort?: string; order?: string; limit?: number; offset?: number }) =>
     call<{ total: number; rows: (Excerpt & { attempts: number })[] }>("GET", `/api/library?${query(params)}`),
   summary: () => call<Summary>("GET", "/api/admin/summary"),
 };

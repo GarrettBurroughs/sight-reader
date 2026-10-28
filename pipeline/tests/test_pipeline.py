@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import excerpts  # noqa: E402
 import features  # noqa: E402
+import generate  # noqa: E402
 from musicxml import parse, read_mxl, write_mxl  # noqa: E402
 
 MINUET = Path(__file__).resolve().parents[2] / "web" / "public" / "scores" / "minuet-in-g.musicxml"
@@ -47,6 +48,40 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(f["shortest"], 0.5)
         self.assertEqual(f["out_of_key_per_bar"], 0.0)  # F# is in G major
         self.assertGreater(features.difficulty(f), 0)
+
+
+class GenerateTest(unittest.TestCase):
+    def test_every_stage_makes_valid_exercises(self):
+        for stage in generate.STAGES:
+            for seed in range(20):
+                root, _, key = generate.generate(stage, seed)
+                with tempfile.TemporaryDirectory() as d:
+                    write_mxl(root, f"{d}/x.mxl")
+                    score = parse(read_mxl(f"{d}/x.mxl"))
+                with self.subTest(stage=stage.number, seed=seed):
+                    self.assertEqual(len(score.measures), 8)
+                    for m in score.measures:  # every bar adds up, in both hands
+                        for staff in (1, 2):
+                            notes = [n for n in m.notes if n.staff == staff and not n.grace]
+                            self.assertAlmostEqual(max(n.onset + n.duration for n in notes), m.attrs.bar_length)
+                    last_rh = [n for n in score.measures[-1].notes if n.staff == 1 and n.played][-1]
+                    self.assertEqual(last_rh.midi % 12, key.tonic_pc)  # ends on the home note
+                    f = features.compute(score.measures)
+                    self.assertEqual(features.grade(features.difficulty(f)), 1)
+                    fingered = [m for m in score.measures if m.element.find(".//fingering") is not None]
+                    self.assertLessEqual(len(fingered), 2)  # only where each hand starts
+
+    def test_stages_get_harder(self):
+        medians = []
+        for stage in generate.STAGES:
+            ds = []
+            for seed in range(30):
+                root, _, _ = generate.generate(stage, seed)
+                with tempfile.TemporaryDirectory() as d:
+                    write_mxl(root, f"{d}/x.mxl")
+                    ds.append(features.difficulty(features.compute(parse(read_mxl(f"{d}/x.mxl")).measures)))
+            medians.append(sorted(ds)[15])
+        self.assertEqual(medians, sorted(medians))
 
 
 if __name__ == "__main__":

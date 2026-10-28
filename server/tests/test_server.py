@@ -29,7 +29,7 @@ def client(tmp_path):
     db = sqlite3.connect(lib / "library.sqlite")
     db.executescript(LIBRARY_SCHEMA)
     for piece, ok in (("p1", 1), ("p2", 0)):
-        db.execute("INSERT INTO pieces VALUES (?, '', ?, 'Petzold', NULL, 'publicdomain', ?, NULL, 0, 0, 16)",
+        db.execute("INSERT INTO pieces VALUES (?, 'pdmx', '', ?, 'Petzold', NULL, 'publicdomain', ?, NULL, 0, 0, 16)",
                    (piece, f"Piece {piece}", ok))
     rows = [(f"p1-{g}", "p1", g) for g in range(1, 10)] + [("p2-3", "p2", 3)]
     for ex_id, piece, grade in rows:
@@ -49,11 +49,14 @@ def test_level_update_rules():
     assert levels.update(1.0, 0.0, 1) == 1.0  # floor
 
 
-def test_grade_preference_mostly_own_grade():
+def test_pick_target_stays_close():
     rng = random.Random(1)
-    firsts = [levels.grade_preference(3.4, rng)[0] for _ in range(1000)]
-    assert 0.6 < firsts.count(3) / 1000 < 0.8
-    assert set(firsts) == {2, 3, 4}
+    picks = [levels.pick_target(3.4, rng) for _ in range(1000)]
+    assert {grades[0] for grades, _ in picks} == {3}
+    assert all(3.2 <= aim <= 3.6 for _, aim in picks)
+    near_edge = [levels.pick_target(1.95, rng)[0][0] for _ in range(1000)]
+    assert 0.2 < near_edge.count(2) / 1000 < 0.5  # sometimes just over into grade 2
+    assert min(levels.pick_target(1.0, rng)[1] for _ in range(200)) == 1.0  # never below the floor
 
 
 def test_practice_flow(client):
@@ -131,3 +134,12 @@ def test_migrates_old_attempts_table(tmp_path, client):
     create_app(old, tmp_path / "library")
     cols = {r[1] for r in sqlite3.connect(old).execute("PRAGMA table_info(attempts)")}
     assert {"hands", "wrong_left", "missed_right"} <= cols
+
+
+def test_target_difficulty_moves_through_the_grade():
+    cut = (4.5, 5.8, 7.8, 10.0, 11.8, 12.4, 13.0, 15.5)
+    assert levels.target_difficulty(1.0, 1, cut) == levels.EASIEST
+    assert levels.target_difficulty(1.5, 1, cut) == pytest.approx((levels.EASIEST + 4.5) / 2)
+    assert levels.target_difficulty(2.0, 2, cut) == 4.5
+    assert levels.target_difficulty(1.9, 2, cut) == 4.5  # grade above: its easy end
+    assert levels.target_difficulty(2.1, 1, cut) == 4.5  # grade below: its hard end

@@ -54,7 +54,7 @@ function fail(err: unknown) {
 
 // ---- Library ----
 
-const libState = { q: "", grade: "", license: false, sort: "difficulty", order: "asc", offset: 0 };
+const libState = { q: "", grade: "", source: "", license: false, sort: "difficulty", order: "asc", offset: 0 };
 
 async function showLibrary() {
   const summary = await api.summary();
@@ -69,6 +69,7 @@ async function showLibrary() {
         Object.assign(libState, {
           q: String(f.get("q") ?? ""),
           grade: String(f.get("grade") ?? ""),
+          source: String(f.get("source") ?? ""),
           license: f.get("license") === "on",
           sort: String(f.get("sort")),
           order: String(f.get("order")),
@@ -83,6 +84,13 @@ async function showLibrary() {
       { name: "grade" },
       h("option", { value: "" }, "All grades"),
       ...Array.from({ length: 9 }, (_, i) => h("option", { value: String(i + 1), selected: libState.grade === String(i + 1) }, `Grade ${i + 1}`)),
+    ),
+    h(
+      "select",
+      { name: "source" },
+      h("option", { value: "" }, "All sources"),
+      h("option", { value: "pdmx", selected: libState.source === "pdmx" }, "PDMX pieces"),
+      h("option", { value: "generated", selected: libState.source === "generated" }, "Generated exercises"),
     ),
     h(
       "select",
@@ -104,7 +112,8 @@ async function showLibrary() {
     h(
       "p",
       { class: "quiet" },
-      `${summary.pieces.toLocaleString()} pieces · ${summary.excerpts.toLocaleString()} excerpts · ` +
+      `${(summary.pieces - summary.generated).toLocaleString()} PDMX pieces + ${summary.generated.toLocaleString()} generated exercises · ` +
+        `${summary.excerpts.toLocaleString()} excerpts · ` +
         `${summary.players} players · ${summary.attempts} attempts` +
         (summary.license_only ? " · server serves no-license-conflict music only" : ""),
     ),
@@ -121,6 +130,7 @@ async function showLibrary() {
     const { total, rows } = await api.library({
       q: libState.q || undefined,
       grade: libState.grade ? Number(libState.grade) : undefined,
+      source: libState.source || undefined,
       license_only: libState.license || undefined,
       sort: libState.sort,
       order: libState.order,

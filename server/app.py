@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import sqlite3
 import sys
 from datetime import datetime, timezone
@@ -24,10 +25,11 @@ import levels
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "pipeline"))
-from features import difficulty_terms  # noqa: E402
+from features import GRADE_CUTOFFS, difficulty_terms  # noqa: E402
 
 Mode = Literal["wait", "tempo"]
 RECENT_PIECES = 15  # don't serve a piece again within this many attempts
+NEAREST = 25  # pick at random among this many excerpts closest to the target difficulty
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS players (
@@ -177,11 +179,12 @@ def create_app(app_db: Path | None = None, library_dir: Path | None = None, lice
             "key_fifths": row["key_fifths"],
             "notes_per_quarter": row["notes_per_quarter"],
             "no_license_conflict": bool(row["no_license_conflict"]),
+            "source": row["source"],
             "score_url": f"/api/excerpts/{row['id']}/score.mxl",
         }
 
     EXCERPT_SELECT = """
-        SELECT e.*, p.title, p.composer, p.no_license_conflict, p.genres, p.license, p.rating, p.n_favorites
+        SELECT e.*, p.title, p.composer, p.no_license_conflict, p.source, p.genres, p.license, p.rating, p.n_favorites
         FROM lib.excerpts e JOIN lib.pieces p ON p.id = e.piece_id
     """
 
@@ -250,24 +253,27 @@ def create_app(app_db: Path | None = None, library_dir: Path | None = None, lice
         with connect() as db:
             player_or_404(db, player_id)
             level = player_levels(db, player_id)[levels.level_key(mode, hands)]
-            grades = [grade] if grade else levels.grade_preference(level)
+            grades, aim = levels.pick_target(level)
+            if grade:
+                grades, aim = [grade], grade + 0.5  # a fixed grade: aim at its middle
             # One hand alone needs something to play: at least two notes a bar in that hand.
             hand_clause = (
                 f"AND json_extract(e.features, '$.{'rh' if hands == 'right' else 'lh'}.notes') >= 2 * e.n_bars"
                 if hands != "both" else ""
             )
             for g in grades:
-                row = db.execute(
+                target = levels.target_difficulty(aim, g, GRADE_CUTOFFS)
+                rows = db.execute(
                     EXCERPT_SELECT
                     + f"""WHERE e.grade = ? {license_clause(license_only)} {hand_clause}
                           AND e.id NOT IN (SELECT excerpt_id FROM attempts WHERE player_id = ?)
                           AND e.piece_id NOT IN (SELECT piece_id FROM attempts WHERE player_id = ?
                                                  ORDER BY id DESC LIMIT ?)
-                          ORDER BY random() LIMIT 1""",
-                    (g, player_id, player_id, RECENT_PIECES),
-                ).fetchone()
-                if row:
-                    return {"level": level, "excerpt": excerpt_meta(row)}
+                          ORDER BY abs(e.difficulty - ?) LIMIT ?""",
+                    (g, player_id, player_id, RECENT_PIECES, target, NEAREST),
+                ).fetchall()
+                if rows:
+                    return {"level": level, "excerpt": excerpt_meta(random.choice(rows))}
             raise HTTPException(404, "No unplayed excerpts left at that grade")
 
     @app.post("/api/attempts", status_code=201)
@@ -334,12 +340,16 @@ def create_app(app_db: Path | None = None, library_dir: Path | None = None, lice
 
     @app.get("/api/library")
     def library(grade: int | None = Query(None, ge=1, le=9), q: str | None = None, license_only: bool | None = None,
+                source: Literal["pdmx", "generated"] | None = None,
                 sort: Literal["difficulty", "grade", "title", "attempts"] = "difficulty",
                 order: Literal["asc", "desc"] = "asc", limit: int = Query(50, le=500), offset: int = 0):
         where, params = ["1 = 1"], []
         if grade:
             where.append("e.grade = ?")
             params.append(grade)
+        if source:
+            where.append("p.source = ?")
+            params.append(source)
         if q:
             where.append("(p.title LIKE ? OR p.composer LIKE ?)")
             params += [f"%{q}%", f"%{q}%"]
@@ -350,7 +360,7 @@ def create_app(app_db: Path | None = None, library_dir: Path | None = None, lice
                 f"SELECT COUNT(*) FROM lib.excerpts e JOIN lib.pieces p ON p.id = e.piece_id WHERE {sql_where}", params
             ).fetchone()[0]
             rows = db.execute(
-                f"""SELECT e.*, p.title, p.composer, p.no_license_conflict,
+                f"""SELECT e.*, p.title, p.composer, p.no_license_conflict, p.source,
                        (SELECT COUNT(*) FROM attempts a WHERE a.excerpt_id = e.id) AS attempts
                     FROM lib.excerpts e JOIN lib.pieces p ON p.id = e.piece_id
                     WHERE {sql_where} ORDER BY {sort_col} {order}, e.id LIMIT ? OFFSET ?""",
@@ -371,6 +381,7 @@ def create_app(app_db: Path | None = None, library_dir: Path | None = None, lice
                 "excerpts": db.execute("SELECT COUNT(*) FROM lib.excerpts").fetchone()[0],
                 "players": db.execute("SELECT COUNT(*) FROM players").fetchone()[0],
                 "attempts": db.execute("SELECT COUNT(*) FROM attempts").fetchone()[0],
+                "generated": db.execute("SELECT COUNT(*) FROM lib.pieces WHERE source = 'generated'").fetchone()[0],
                 "license_only": license_only,
                 "grades": [dict(g) for g in grades],
             }

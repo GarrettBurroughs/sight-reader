@@ -4,6 +4,7 @@
 
 Reads data/raw/PDMX.csv and the extracted scores in data/pdmx/, and writes
 data/library/library.sqlite plus one .mxl per excerpt under data/library/excerpts/.
+Generated beginner exercises (generate.py) are added alongside, under data/library/exercises/.
 """
 
 from __future__ import annotations
@@ -23,17 +24,20 @@ from pathlib import Path
 
 import excerpts
 import features
+import generate
 from musicxml import ScoreError, parse, read_mxl, write_mxl
 
 DATA = Path(__file__).resolve().parent / "data"
 CSV_PATH = DATA / "raw" / "PDMX.csv"
 PDMX_DIR = DATA / "pdmx"
 OUT = DATA / "library"
+BUILD = DATA / "library.building"  # built here, then swapped in, so a running server never sees a half-built library
 GRADES = 9
 
 SCHEMA = """
 CREATE TABLE pieces (
-  id TEXT PRIMARY KEY,           -- PDMX file stem
+  id TEXT PRIMARY KEY,           -- PDMX file stem, or the exercise id
+  source TEXT NOT NULL,          -- 'pdmx' or 'generated'
   pdmx_path TEXT NOT NULL,
   title TEXT,
   composer TEXT,
@@ -117,6 +121,7 @@ def process(row: dict) -> tuple[dict | None, list[dict], str | None]:
     composer = text(row["composer_name"]) or text(row["artist_name"])
     piece = {
         "id": stem,
+        "source": "pdmx",
         "pdmx_path": row["mxl"],
         "title": title,
         "composer": composer,
@@ -137,8 +142,8 @@ def process(row: dict) -> tuple[dict | None, list[dict], str | None]:
         rel = f"excerpts/{stem[2:4]}/{ex_id}.mxl"
         bar = window[0].element.get("number")
         root = excerpts.cut(score, start, f"{title} (bars {bar}–{window[-1].element.get('number')})", composer)
-        (OUT / rel).parent.mkdir(parents=True, exist_ok=True)
-        write_mxl(root, str(OUT / rel))
+        (BUILD / rel).parent.mkdir(parents=True, exist_ok=True)
+        write_mxl(root, str(BUILD / rel))
         out.append(
             {
                 "id": ex_id,
@@ -158,16 +163,38 @@ def process(row: dict) -> tuple[dict | None, list[dict], str | None]:
     return piece, out, None
 
 
+def exercises(per_stage: int) -> tuple[list[dict], list[dict]]:
+    """Generate the beginner exercises and catalog them like excerpts (one piece each)."""
+    pieces, rows = [], []
+    for ex_id, title, stage, path in generate.build(BUILD, per_stage):
+        window = parse(read_mxl(str(path))).measures
+        f = features.compute(window)
+        d = features.difficulty(f)
+        pieces.append({
+            "id": ex_id, "source": "generated", "pdmx_path": "", "title": title, "composer": "Generated exercise",
+            "genres": f"exercise-stage-{stage.number}", "license": "generated", "no_license_conflict": 1,
+            "rating": None, "n_ratings": 0, "n_favorites": 0, "n_bars": len(window),
+        })
+        rows.append({
+            "id": ex_id, "piece_id": ex_id, "start_index": 0, "start_bar": "1", "n_bars": len(window),
+            "file": str(path.relative_to(BUILD)), "difficulty": d, "grade": features.grade(d),
+            "key_fifths": f["key_fifths"], "time_signature": f"{f['beats']}/{f['beat_type']}",
+            "notes_per_quarter": round(f["notes_per_quarter"], 3), "features": json.dumps(f, separators=(",", ":")),
+        })
+    return pieces, rows
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--limit", type=int, help="only look at the first N candidate scores")
     ap.add_argument("--workers", type=int, default=os.cpu_count())
     ap.add_argument("--no-license-conflict-only", action="store_true", help="skip scores PDMX flags with a license conflict")
+    ap.add_argument("--exercises-per-stage", type=int, default=250, help="generated beginner exercises per stage (0 for none)")
     args = ap.parse_args()
 
-    if OUT.exists():
-        shutil.rmtree(OUT)
-    OUT.mkdir(parents=True)
+    if BUILD.exists():
+        shutil.rmtree(BUILD)
+    BUILD.mkdir(parents=True)
 
     rows = list(candidates(args.no_license_conflict_only, args.limit))
     print(f"{len(rows)} candidate scores, {args.workers} workers")
@@ -183,13 +210,18 @@ def main() -> None:
             if i % 2000 == 0:
                 print(f"  {i}/{len(rows)}  {len(pieces)} pieces, {len(all_excerpts)} excerpts  ({time.time() - t0:.0f}s)")
 
+    if args.exercises_per_stage:
+        ex_pieces, ex_rows = exercises(args.exercises_per_stage)
+        pieces += ex_pieces
+        all_excerpts += ex_rows
+        print(f"  + {len(ex_rows)} generated exercises")
     if not all_excerpts:
         sys.exit("No excerpts produced.")
 
-    db = sqlite3.connect(OUT / "library.sqlite")
+    db = sqlite3.connect(BUILD / "library.sqlite")
     db.executescript(SCHEMA)
     db.executemany(
-        "INSERT INTO pieces VALUES (:id,:pdmx_path,:title,:composer,:genres,:license,:no_license_conflict,"
+        "INSERT INTO pieces VALUES (:id,:source,:pdmx_path,:title,:composer,:genres,:license,:no_license_conflict,"
         ":rating,:n_ratings,:n_favorites,:n_bars)",
         pieces,
     )
@@ -200,6 +232,11 @@ def main() -> None:
     )
     db.commit()
     db.close()
+    old = DATA / "library.old"
+    if OUT.exists():
+        OUT.rename(old)
+    BUILD.rename(OUT)
+    shutil.rmtree(old, ignore_errors=True)
 
     print(f"\nDone in {time.time() - t0:.0f}s: {len(pieces)} pieces, {len(all_excerpts)} excerpts -> {OUT}")
     print("Rejected:", ", ".join(f"{r} {n}" for r, n in rejected.most_common(12)))
