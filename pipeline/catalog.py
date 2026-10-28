@@ -52,18 +52,19 @@ CREATE TABLE pieces (
 CREATE TABLE excerpts (
   id TEXT PRIMARY KEY,
   piece_id TEXT NOT NULL REFERENCES pieces(id),
+  kind TEXT NOT NULL,            -- 'excerpt' (8 bars), 'section' (16 bars) or 'full' (the whole piece)
   start_index INTEGER NOT NULL,  -- 0-based measure index in the original score
   start_bar TEXT,                -- the original's printed measure number
   n_bars INTEGER NOT NULL,
   file TEXT NOT NULL,            -- relative to the library directory
-  difficulty REAL NOT NULL,      -- raw score, bigger is harder
+  difficulty REAL NOT NULL,      -- raw score of the hardest 8-bar passage, bigger is harder
   grade INTEGER NOT NULL,        -- 1-9, see features.GRADE_CUTOFFS
   key_fifths INTEGER,
   time_signature TEXT,
   notes_per_quarter REAL,
-  features TEXT NOT NULL         -- JSON, see features.compute
+  features TEXT NOT NULL         -- JSON of the hardest passage, see features.compute and excerpts.hardest
 );
-CREATE INDEX excerpts_grade ON excerpts(grade);
+CREATE INDEX excerpts_grade ON excerpts(kind, grade);
 CREATE INDEX excerpts_piece ON excerpts(piece_id);
 """
 
@@ -109,13 +110,17 @@ def process(row: dict) -> tuple[dict | None, list[dict], str | None]:
     try:
         score = parse(read_mxl(str(PDMX_DIR / row["mxl"])))
         excerpts.check_piano(score)
-        starts = excerpts.windows(score)
+        spans = [("excerpt", s, excerpts.EXCERPT_BARS) for s in excerpts.windows(score)]
+        spans += [("section", s, excerpts.SECTION_BARS)
+                  for s in excerpts.windows(score, excerpts.SECTION_BARS, excerpts.MAX_SECTIONS)]
+        if excerpts.full_piece_ok(score):
+            spans.append(("full", 0, len(score.measures)))
     except ScoreError as e:
         return None, [], re.sub(r"\d+", "N", str(e))  # group "3 staves", "5 staves"... together
     except Exception as e:  # malformed XML and other surprises: skip the file
         return None, [], f"error: {type(e).__name__}"
-    if not starts:
-        return None, [], "no usable 8-bar window"
+    if not spans:
+        return None, [], "nothing usable to play"
 
     title = text(row["title"]) or text(row["song_name"]) or "Untitled"
     composer = text(row["composer_name"]) or text(row["artist_name"])
@@ -135,24 +140,27 @@ def process(row: dict) -> tuple[dict | None, list[dict], str | None]:
     }
 
     out = []
-    for start in starts:
-        window = score.measures[start : start + excerpts.EXCERPT_BARS]
-        f = features.compute(window)
-        ex_id = f"{stem}-{start}"
+    for kind, start, bars in spans:
+        window = score.measures[start : start + bars]
+        d, f = excerpts.hardest(score, start, bars)
+        # Ids stay stable across rebuilds, so saved attempts keep pointing at the same music.
+        ex_id = {"excerpt": f"{stem}-{start}", "section": f"{stem}-s{start}", "full": f"{stem}-full"}[kind]
         rel = f"excerpts/{stem[2:4]}/{ex_id}.mxl"
         bar = window[0].element.get("number")
-        root = excerpts.cut(score, start, f"{title} (bars {bar}–{window[-1].element.get('number')})", composer)
+        name = title if kind == "full" else f"{title} (bars {bar}–{window[-1].element.get('number')})"
+        root = excerpts.cut(score, start, name, composer, bars)
         (BUILD / rel).parent.mkdir(parents=True, exist_ok=True)
         write_mxl(root, str(BUILD / rel))
         out.append(
             {
                 "id": ex_id,
                 "piece_id": stem,
+                "kind": kind,
                 "start_index": start,
                 "start_bar": bar,
                 "n_bars": len(window),
                 "file": rel,
-                "difficulty": (d := features.difficulty(f)),
+                "difficulty": d,
                 "grade": features.grade(d),
                 "key_fifths": f["key_fifths"],
                 "time_signature": f"{f['beats']}/{f['beat_type']}",
@@ -176,7 +184,7 @@ def exercises(per_stage: int) -> tuple[list[dict], list[dict]]:
             "rating": None, "n_ratings": 0, "n_favorites": 0, "n_bars": len(window),
         })
         rows.append({
-            "id": ex_id, "piece_id": ex_id, "start_index": 0, "start_bar": "1", "n_bars": len(window),
+            "id": ex_id, "piece_id": ex_id, "kind": "excerpt", "start_index": 0, "start_bar": "1", "n_bars": len(window),
             "file": str(path.relative_to(BUILD)), "difficulty": d, "grade": features.grade(d),
             "key_fifths": f["key_fifths"], "time_signature": f"{f['beats']}/{f['beat_type']}",
             "notes_per_quarter": round(f["notes_per_quarter"], 3), "features": json.dumps(f, separators=(",", ":")),
@@ -226,7 +234,7 @@ def main() -> None:
         pieces,
     )
     db.executemany(
-        "INSERT INTO excerpts VALUES (:id,:piece_id,:start_index,:start_bar,:n_bars,:file,:difficulty,:grade,"
+        "INSERT INTO excerpts VALUES (:id,:piece_id,:kind,:start_index,:start_bar,:n_bars,:file,:difficulty,:grade,"
         ":key_fifths,:time_signature,:notes_per_quarter,:features)",
         all_excerpts,
     )
@@ -240,8 +248,9 @@ def main() -> None:
 
     print(f"\nDone in {time.time() - t0:.0f}s: {len(pieces)} pieces, {len(all_excerpts)} excerpts -> {OUT}")
     print("Rejected:", ", ".join(f"{r} {n}" for r, n in rejected.most_common(12)))
-    per_grade = Counter(e["grade"] for e in all_excerpts)
-    print("Per grade:", ", ".join(f"{g}: {per_grade[g]}" for g in range(1, GRADES + 1)))
+    for kind in ("excerpt", "section", "full"):
+        per_grade = Counter(e["grade"] for e in all_excerpts if e["kind"] == kind)
+        print(f"{kind:8} per grade:", ", ".join(f"{g}: {per_grade[g]}" for g in range(1, GRADES + 1)))
 
 
 if __name__ == "__main__":

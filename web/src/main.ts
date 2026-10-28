@@ -1,5 +1,5 @@
 import "./style.css";
-import { api, levelKey, type AttemptResult, type Excerpt, type Hands, type Player } from "./api";
+import { api, levelKey, type AttemptResult, type Excerpt, type Hands, type Length, type Player } from "./api";
 import { unlockAudio } from "./audio";
 import { Calibration } from "./calibrate";
 import { isBlackKey, noteName, onDevices, onNote, startInput } from "./midi";
@@ -27,6 +27,7 @@ const goBtn = $<HTMLButtonElement>("#go");
 const calibrateBtn = $<HTMLButtonElement>("#calibrate");
 const playerSel = $<HTMLSelectElement>("#player");
 const gradeSel = $<HTMLSelectElement>("#grade");
+const lengthSel = $<HTMLSelectElement>("#length");
 const nextBtn = $<HTMLButtonElement>("#next");
 
 const keyEls = new Map<number, HTMLDivElement>();
@@ -34,6 +35,7 @@ const score = new Score(scoreEl);
 
 let mode: Mode = load("mode") === "tempo" ? "tempo" : "wait";
 let hands: Hands = (["right", "left"] as const).find((h) => h === load("hands")) ?? "both";
+let length: Length = (["section", "full"] as const).find((l) => l === load("length")) ?? "excerpt";
 let latencyMs = Number(load("latencyMs") ?? 0) || 0;
 let session: Session | null = null;
 let tempoRunning = false;
@@ -220,6 +222,7 @@ function renderMusicOptions() {
   gradeSel.replaceChildren(...options.map(([v, label]) => new Option(label, v)));
   gradeSel.value = options.some(([v]) => v === value) ? value : options[0][0];
   nextBtn.hidden = !player;
+  lengthSel.hidden = !player || gradeSel.value === "test";
 }
 
 /** Ask the server for the next excerpt (by level, or a fixed grade), or open the test piece. */
@@ -228,7 +231,7 @@ async function pickPiece() {
   if (!player || gradeSel.value === "test") return openScore(SCORE_URL, null);
   try {
     const grade = gradeSel.value === "auto" ? undefined : Number(gradeSel.value);
-    const { excerpt: next } = await api.next(player.id, mode, hands, grade);
+    const { excerpt: next } = await api.next(player.id, mode, hands, length, grade);
     await openScore(next.score_url, next);
   } catch (err) {
     ui.message(`Couldn't get a piece: ${err instanceof Error ? err.message : err}`);
@@ -292,6 +295,13 @@ playerSel.addEventListener("change", () => {
   pickPiece();
 });
 
+lengthSel.addEventListener("change", () => {
+  lengthSel.blur();
+  length = lengthSel.value as Length;
+  save("length", length);
+  pickPiece();
+});
+
 gradeSel.addEventListener("change", () => {
   gradeSel.blur();
   save("music", gradeSel.value);
@@ -324,6 +334,7 @@ onDevices((d) => {
 
 buildPiano();
 score.setHands(hands);
+lengthSel.value = length;
 renderHands();
 renderControls();
 startInput().then((msg) => {

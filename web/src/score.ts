@@ -95,6 +95,13 @@ export class Score {
     return { beats: ts.Numerator, unit: ts.Denominator };
   }
 
+  /** Beats missing from an opening pickup bar (0 if the piece starts on a downbeat). */
+  pickupBeats() {
+    const first = this.osmd.Sheet.SourceMeasures[0];
+    const missing = first.ActiveTimeSignature.RealValue - first.Duration.RealValue;
+    return Math.max(0, Math.round(missing * this.meter().unit * 1000) / 1000);
+  }
+
   /** Length of the whole piece in beats. */
   lengthInBeats() {
     const whole = this.osmd.Sheet.SourceMeasures.reduce((sum, m) => sum + m.Duration.RealValue, 0);

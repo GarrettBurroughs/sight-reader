@@ -87,6 +87,7 @@ ADDED_COLUMNS = {
     },
 }
 Hands = Literal["both", "right", "left"]
+Length = Literal["excerpt", "section", "full"]  # 8 bars, 16 bars, the whole piece
 
 
 def now() -> str:
@@ -214,6 +215,7 @@ def create_app(app_db: Path | None = None, library_dir: Path | None = None, lice
         return {
             "id": row["id"],
             "piece_id": row["piece_id"],
+            "kind": row["kind"],
             "title": row["title"],
             "composer": row["composer"],
             "grade": row["grade"],
@@ -293,29 +295,31 @@ def create_app(app_db: Path | None = None, library_dir: Path | None = None, lice
     # ---- Practice ----
 
     @app.get("/api/next")
-    def next_excerpt(player_id: int, mode: Mode, hands: Hands = "both", grade: int | None = Query(None, ge=1, le=9),
-                     license_only: bool | None = None):
+    def next_excerpt(player_id: int, mode: Mode, hands: Hands = "both", length: Length = "excerpt",
+                     grade: int | None = Query(None, ge=1, le=9), license_only: bool | None = None):
         with connect() as db:
             player_or_404(db, player_id)
             level = player_levels(db, player_id)[levels.level_key(mode, hands)]
             grades, aim = levels.pick_target(level)
             if grade:
                 grades, aim = [grade], grade + 0.5  # a fixed grade: aim at its middle
-            # One hand alone needs something to play: at least two notes a bar in that hand.
+            # One hand alone needs something to play: at least two notes a bar in that hand
+            # (measured over the passage the features describe).
             hand_clause = (
-                f"AND json_extract(e.features, '$.{'rh' if hands == 'right' else 'lh'}.notes') >= 2 * e.n_bars"
+                f"AND json_extract(e.features, '$.{'rh' if hands == 'right' else 'lh'}.notes') "
+                f">= 2 * json_extract(e.features, '$.bars')"
                 if hands != "both" else ""
             )
             for g in grades:
                 target = levels.target_difficulty(aim, g, GRADE_CUTOFFS)
                 rows = db.execute(
                     EXCERPT_SELECT
-                    + f"""WHERE e.grade = ? {license_clause(license_only)} {hand_clause}
+                    + f"""WHERE e.kind = ? AND e.grade = ? {license_clause(license_only)} {hand_clause}
                           AND e.id NOT IN (SELECT excerpt_id FROM attempts WHERE player_id = ?)
                           AND e.piece_id NOT IN (SELECT piece_id FROM attempts WHERE player_id = ?
                                                  ORDER BY id DESC LIMIT ?)
                           ORDER BY abs(e.difficulty - ?) LIMIT ?""",
-                    (g, player_id, player_id, RECENT_PIECES, target, NEAREST),
+                    (length, g, player_id, player_id, RECENT_PIECES, target, NEAREST),
                 ).fetchall()
                 if rows:
                     return {"level": level, "excerpt": excerpt_meta(random.choice(rows))}
@@ -385,7 +389,7 @@ def create_app(app_db: Path | None = None, library_dir: Path | None = None, lice
 
     @app.get("/api/library")
     def library(grade: int | None = Query(None, ge=1, le=9), q: str | None = None, license_only: bool | None = None,
-                source: Literal["pdmx", "generated"] | None = None,
+                source: Literal["pdmx", "generated"] | None = None, kind: Length | None = None,
                 sort: Literal["difficulty", "grade", "title", "attempts"] = "difficulty",
                 order: Literal["asc", "desc"] = "asc", limit: int = Query(50, le=500), offset: int = 0):
         where, params = ["1 = 1"], []
@@ -395,6 +399,9 @@ def create_app(app_db: Path | None = None, library_dir: Path | None = None, lice
         if source:
             where.append("p.source = ?")
             params.append(source)
+        if kind:
+            where.append("e.kind = ?")
+            params.append(kind)
         if q:
             where.append("(p.title LIKE ? OR p.composer LIKE ?)")
             params += [f"%{q}%", f"%{q}%"]
@@ -417,7 +424,8 @@ def create_app(app_db: Path | None = None, library_dir: Path | None = None, lice
     def summary():
         with connect() as db:
             grades = db.execute(
-                """SELECT e.grade, COUNT(*) AS excerpts, SUM(p.no_license_conflict) AS license_ok,
+                """SELECT e.grade, SUM(e.kind = 'excerpt') AS excerpts, SUM(e.kind = 'section') AS sections,
+                          SUM(e.kind = 'full') AS full, SUM(p.no_license_conflict) AS license_ok,
                           COUNT(DISTINCT e.piece_id) AS pieces
                    FROM lib.excerpts e JOIN lib.pieces p ON p.id = e.piece_id GROUP BY e.grade ORDER BY e.grade"""
             ).fetchall()

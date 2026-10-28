@@ -5,7 +5,7 @@
 import "./style.css";
 import "./admin.css";
 import { OpenSheetMusicDisplay } from "opensheetmusicdisplay";
-import { api, levelKey, type Attempt, type Hands, type Mode, type Player } from "./api";
+import { api, levelKey, type Attempt, type Hands, type Length, type Mode, type Player } from "./api";
 
 const view = document.querySelector<HTMLElement>("#view")!;
 const PAGE = 50;
@@ -44,6 +44,7 @@ const pct = (x: number | null) => (x === null || x === undefined ? "—" : `${Ma
 const MODES: Mode[] = ["wait", "tempo"];
 const HANDS: Hands[] = ["both", "right", "left"];
 const HAND_LABEL: Record<Hands, string> = { both: "Both", right: "Right", left: "Left" };
+const KIND_LABEL: Record<Length, string> = { excerpt: "8-bar excerpt", section: "16-bar section", full: "Full piece" };
 const byHand = (r: number | null, l: number | null) => (r === null && l === null ? "—" : `R ${r ?? 0} · L ${l ?? 0}`);
 
 function fail(err: unknown) {
@@ -54,7 +55,7 @@ function fail(err: unknown) {
 
 // ---- Library ----
 
-const libState = { q: "", grade: "", source: "", license: false, sort: "difficulty", order: "asc", offset: 0 };
+const libState = { q: "", grade: "", source: "", kind: "", license: false, sort: "difficulty", order: "asc", offset: 0 };
 
 async function showLibrary() {
   const summary = await api.summary();
@@ -70,6 +71,7 @@ async function showLibrary() {
           q: String(f.get("q") ?? ""),
           grade: String(f.get("grade") ?? ""),
           source: String(f.get("source") ?? ""),
+          kind: String(f.get("kind") ?? ""),
           license: f.get("license") === "on",
           sort: String(f.get("sort")),
           order: String(f.get("order")),
@@ -84,6 +86,12 @@ async function showLibrary() {
       { name: "grade" },
       h("option", { value: "" }, "All grades"),
       ...Array.from({ length: 9 }, (_, i) => h("option", { value: String(i + 1), selected: libState.grade === String(i + 1) }, `Grade ${i + 1}`)),
+    ),
+    h(
+      "select",
+      { name: "kind" },
+      h("option", { value: "" }, "All lengths"),
+      ...(["excerpt", "section", "full"] as const).map((k) => h("option", { value: k, selected: libState.kind === k }, KIND_LABEL[k])),
     ),
     h(
       "select",
@@ -113,14 +121,21 @@ async function showLibrary() {
       "p",
       { class: "quiet" },
       `${(summary.pieces - summary.generated).toLocaleString()} PDMX pieces + ${summary.generated.toLocaleString()} generated exercises · ` +
-        `${summary.excerpts.toLocaleString()} excerpts · ` +
+        `${summary.excerpts.toLocaleString()} things to play · ` +
         `${summary.players} players · ${summary.attempts} attempts` +
         (summary.license_only ? " · server serves no-license-conflict music only" : ""),
     ),
     table(
-      ["Grade", "Excerpts", "Pieces", "No license conflict"],
-      summary.grades.map((g) => [g.grade, g.excerpts.toLocaleString(), g.pieces.toLocaleString(), g.license_ok.toLocaleString()]),
-      [1, 2, 3],
+      ["Grade", "8-bar excerpts", "16-bar sections", "Full pieces", "Pieces", "No license conflict"],
+      summary.grades.map((g) => [
+        g.grade,
+        g.excerpts.toLocaleString(),
+        g.sections.toLocaleString(),
+        g.full.toLocaleString(),
+        g.pieces.toLocaleString(),
+        g.license_ok.toLocaleString(),
+      ]),
+      [1, 2, 3, 4, 5],
     ),
     controls,
     results,
@@ -131,6 +146,7 @@ async function showLibrary() {
       q: libState.q || undefined,
       grade: libState.grade ? Number(libState.grade) : undefined,
       source: libState.source || undefined,
+      kind: libState.kind || undefined,
       license_only: libState.license || undefined,
       sort: libState.sort,
       order: libState.order,
@@ -147,10 +163,11 @@ async function showLibrary() {
     results.replaceChildren(
       pager,
       table(
-        ["Title", "Composer", "Grade", "Difficulty", "Time", "Key", "Notes/beat", "License OK", "Attempts"],
+        ["Title", "Composer", "Length", "Grade", "Difficulty", "Time", "Key", "Notes/beat", "License OK", "Attempts"],
         rows.map((r) => [
           h("a", { href: `#excerpt/${r.id}` }, r.title),
           r.composer ?? "—",
+          r.kind === "full" ? `Full (${r.n_bars} bars)` : `${r.n_bars} bars`,
           r.grade,
           r.difficulty.toFixed(2),
           r.time_signature,
@@ -159,7 +176,7 @@ async function showLibrary() {
           r.no_license_conflict ? "✓" : "✗",
           r.attempts,
         ]),
-        [2, 3, 6, 8],
+        [3, 4, 7, 9],
       ),
     );
   }
@@ -183,7 +200,7 @@ async function showExcerpt(id: string) {
     h(
       "p",
       { class: "quiet" },
-      `${ex.composer ?? "Unknown composer"} · bars ${ex.start_bar}+ (${ex.n_bars}) · ${ex.time_signature} · ${keyName(ex.key_fifths)} major key signature · ` +
+      `${ex.composer ?? "Unknown composer"} · ${KIND_LABEL[ex.kind]}, ${ex.n_bars} bars from bar ${ex.start_bar} · ${ex.time_signature} · ${keyName(ex.key_fifths)} major key signature · ` +
         `license ${ex.license ?? "?"}${ex.no_license_conflict ? "" : " (PDMX flags a conflict)"} · ${ex.n_favorites} favorites`,
     ),
     h(
@@ -191,6 +208,7 @@ async function showExcerpt(id: string) {
       {},
       h("strong", { class: "grade" }, `Grade ${ex.grade}`),
       ` difficulty ${ex.difficulty.toFixed(2)} · `,
+      ex.n_bars > 8 ? `graded by its hardest passage, from bar ${f.hardest_from_bar} · ` : "",
       h("a", { href: `/?excerpt=${encodeURIComponent(ex.id)}` }, "Play this excerpt"),
     ),
     scoreEl,
@@ -200,7 +218,7 @@ async function showExcerpt(id: string) {
       h(
         "section",
         {},
-        h("h3", {}, "What adds up to the difficulty"),
+        h("h3", {}, ex.n_bars > 8 ? "What adds up to the difficulty (hardest passage)" : "What adds up to the difficulty"),
         table(["Term", "Points"], terms.filter(([, v]) => v > 0).map(([k, v]) => [k, v.toFixed(2)]), [1]),
       ),
       h("section", {}, h("h3", {}, "Features"), table(["Feature", "Value"], flat.map(([k, v]) => [String(k), formatValue(v)]), [1])),

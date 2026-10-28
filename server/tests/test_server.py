@@ -61,15 +61,16 @@ def test_license_filter_and_library(client):
                                             "license_only": True}).json()
     assert first["excerpt"]["piece_id"] == "p1"
 
-    lib = client.get("/api/library", params={"grade": 3}).json()
+    lib = client.get("/api/library", params={"grade": 3, "kind": "excerpt"}).json()
     assert lib["total"] == 2
-    assert client.get("/api/library", params={"grade": 3, "license_only": True}).json()["total"] == 1
+    assert client.get("/api/library", params={"grade": 3}).json()["total"] == 3  # plus p1 in full
+    assert client.get("/api/library", params={"grade": 3, "kind": "excerpt", "license_only": True}).json()["total"] == 1
 
     detail = client.get("/api/excerpts/p1-3").json()
     assert "density" in detail["terms"] and detail["features"]["notes"] == 49
 
     s = client.get("/api/admin/summary").json()
-    assert s["excerpts"] == 10 and s["grades"][2]["excerpts"] == 2
+    assert s["excerpts"] == 11 and s["grades"][2]["excerpts"] == 2 and s["grades"][2]["full"] == 1
 
 
 def test_admin_edits(client):
@@ -115,3 +116,11 @@ def test_target_difficulty_moves_through_the_grade():
     assert levels.target_difficulty(2.0, 2, cut) == 4.5
     assert levels.target_difficulty(1.9, 2, cut) == 4.5  # grade above: its easy end
     assert levels.target_difficulty(2.1, 1, cut) == 4.5  # grade below: its hard end
+
+
+def test_length_choice(client):
+    p = client.post("/api/players", json={"name": "L", "level": 3}).json()
+    full = client.get("/api/next", params={"player_id": p["id"], "mode": "wait", "length": "full"}).json()
+    assert full["excerpt"]["kind"] == "full" and full["excerpt"]["id"] == "p1-full"
+    short = client.get("/api/next", params={"player_id": p["id"], "mode": "wait", "grade": 3}).json()
+    assert short["excerpt"]["kind"] == "excerpt"  # excerpts unless asked otherwise

@@ -20,7 +20,8 @@ MINUET = ROOT / "web" / "public" / "scores" / "minuet-in-g.musicxml"
 
 @pytest.fixture
 def library(tmp_path):
-    """A library with one piece and an excerpt at each grade 1-9 (plus a second piece at grade 3)."""
+    """A library with one piece and an excerpt at each grade 1-9, plus that piece in full (grade 3)
+    and a second piece with a grade-3 excerpt."""
     lib = tmp_path / "library"
     (lib / "excerpts").mkdir(parents=True)
     f = features.compute(parse(read_mxl(str(MINUET))).measures[:8])
@@ -29,11 +30,12 @@ def library(tmp_path):
     for piece, ok in (("p1", 1), ("p2", 0)):
         db.execute("INSERT INTO pieces VALUES (?, 'pdmx', '', ?, 'Petzold', NULL, 'publicdomain', ?, NULL, 0, 0, 16)",
                    (piece, f"Piece {piece}", ok))
-    rows = [(f"p1-{g}", "p1", g) for g in range(1, 10)] + [("p2-3", "p2", 3)]
-    for ex_id, piece, grade in rows:
+    rows = [(f"p1-{g}", "p1", "excerpt", g) for g in range(1, 10)] + [("p2-3", "p2", "excerpt", 3),
+                                                                      ("p1-full", "p1", "full", 3)]
+    for ex_id, piece, kind, grade in rows:
         (lib / "excerpts" / f"{ex_id}.mxl").write_bytes(b"PK fake")
-        db.execute("INSERT INTO excerpts VALUES (?, ?, 0, '1', 8, ?, ?, ?, 1, '3/4', 1.0, ?)",
-                   (ex_id, piece, f"excerpts/{ex_id}.mxl", grade * 2.0, grade, json.dumps(f)))
+        db.execute("INSERT INTO excerpts VALUES (?, ?, ?, 0, '1', 8, ?, ?, ?, 1, '3/4', 1.0, ?)",
+                   (ex_id, piece, kind, f"excerpts/{ex_id}.mxl", grade * 2.0, grade, json.dumps(f)))
     db.commit()
     db.close()
     return lib

@@ -25,6 +25,11 @@
           <button type="button" data-hands="left" aria-pressed="false">Left</button>
         </div>
         <select id="grade" aria-label="Music"></select>
+        <select id="length" aria-label="Length">
+          <option value="excerpt">8 bars</option>
+          <option value="section">16 bars</option>
+          <option value="full">Full piece</option>
+        </select>
         <button id="next" type="button" hidden>Next piece</button>
         <label class="tempo-only">BPM <input id="bpm" type="number" min="30" max="200" step="5" inputmode="numeric" /></label>
         <button id="go" type="button">Restart</button>

@@ -49,8 +49,9 @@ export class TempoSession implements Session {
     const { beats } = score.meter();
     this.start = performance.now() + LEAD_IN_MS + beats * this.beatMs;
     const totalBeats = Math.ceil(score.lengthInBeats());
+    const pickup = score.pickupBeats(); // accent real downbeats when the piece opens with a pickup
     for (let k = -beats; k < totalBeats; k++) {
-      this.clicks.at(this.start + k * this.beatMs, ((k % beats) + beats) % beats === 0);
+      this.clicks.at(this.start + k * this.beatMs, (((k + pickup) % beats) + beats) % beats === 0);
     }
     this.tick();
   }

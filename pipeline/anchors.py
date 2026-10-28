@@ -34,22 +34,30 @@ ANCHORS = [
 def main() -> None:
     db = sqlite3.connect(OUT / "library.sqlite")
     print(f"cutoffs: {GRADE_CUTOFFS}\n")
-    print(f"{'piece':30} {'henle':>5} {'grade':>5}  {'n':>3}  difficulty p25 / median / p75")
+    print(f"{'piece':30} {'henle':>5} {'grade':>5}  {'n':>3}  excerpt difficulty p25 / median / p75   full-piece grades")
     for name, title, alternatives, henle in ANCHORS:
         where = " OR ".join("lower(coalesce(p.composer, '') || ' ' || p.title) LIKE ?" for _ in alternatives)
         ds = sorted(
             d
             for (d,) in db.execute(
                 f"SELECT e.difficulty FROM excerpts e JOIN pieces p ON p.id = e.piece_id "
-                f"WHERE lower(p.title) LIKE ? AND ({where})",
+                f"WHERE e.kind = 'excerpt' AND lower(p.title) LIKE ? AND ({where})",
                 [title, *alternatives],
             )
         )
         if not ds:
             print(f"{name:30} {henle:>5}     -  none found")
             continue
+        full = sorted(
+            g for (g,) in db.execute(
+                f"SELECT e.grade FROM excerpts e JOIN pieces p ON p.id = e.piece_id "
+                f"WHERE e.kind = 'full' AND lower(p.title) LIKE ? AND ({where})",
+                [title, *alternatives],
+            )
+        )
         median = statistics.median(ds)
-        print(f"{name:30} {henle:>5} {grade(median):>5}  {len(ds):>3}  {ds[len(ds) // 4]:5.2f} / {median:5.2f} / {ds[3 * len(ds) // 4]:5.2f}")
+        print(f"{name:30} {henle:>5} {grade(median):>5}  {len(ds):>3}  "
+              f"{ds[len(ds) // 4]:5.2f} / {median:5.2f} / {ds[3 * len(ds) // 4]:5.2f}   {full or '-'}")
 
 
 if __name__ == "__main__":

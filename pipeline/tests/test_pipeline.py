@@ -41,6 +41,25 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(again.measures[0].attrs.clefs, {1: ("G", 2), 2: ("F", 4)})
         self.assertEqual(again.measures[-1].element.find("barline/bar-style").text, "light-heavy")
 
+    def test_sections_and_full_piece(self):
+        self.assertEqual(excerpts.windows(self.score, excerpts.SECTION_BARS, excerpts.MAX_SECTIONS), [0])
+        self.assertTrue(excerpts.full_piece_ok(self.score))
+        # Graded by the hardest 8-bar passage: at least as hard as either half.
+        d_full, f_full = excerpts.hardest(self.score, 0, 16)
+        halves = [features.difficulty(features.compute(self.score.measures[i:i + 8])) for i in (0, 8)]
+        self.assertAlmostEqual(d_full, max(d_full, *halves))
+        self.assertGreaterEqual(d_full, max(halves))
+        self.assertEqual(f_full["span_bars"], 16)
+        root = excerpts.cut(self.score, 0, "Minuet", None, bars=16)
+        with tempfile.TemporaryDirectory() as d:
+            write_mxl(root, f"{d}/x.mxl")
+            again = parse(read_mxl(f"{d}/x.mxl"))
+        self.assertEqual(len(again.measures), 16)
+
+    def test_full_piece_rejects_jumps(self):
+        self.score.measures[5].flags.add("ending")
+        self.assertFalse(excerpts.full_piece_ok(self.score))
+
     def test_features(self):
         f = features.compute(self.score.measures[0:8])
         self.assertEqual(f["notes"], 49)  # 32 right hand + 17 left hand

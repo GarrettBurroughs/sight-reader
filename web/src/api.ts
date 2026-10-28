@@ -2,6 +2,7 @@
 
 export type Mode = "wait" | "tempo";
 export type Hands = "both" | "right" | "left";
+export type Length = "excerpt" | "section" | "full"; // 8 bars, 16 bars, the whole piece
 /** Keyed "wait", "tempo", "wait:left", "tempo:right"... (see levelKey). */
 export type Levels = Record<string, number>;
 
@@ -19,6 +20,7 @@ export type Player = {
 export type Excerpt = {
   id: string;
   piece_id: string;
+  kind: Length;
   title: string;
   composer: string | null;
   grade: number;
@@ -96,7 +98,7 @@ export type Summary = {
   attempts: number;
   generated: number;
   license_only: boolean;
-  grades: { grade: number; excerpts: number; license_ok: number; pieces: number }[];
+  grades: { grade: number; excerpts: number; sections: number; full: number; license_ok: number; pieces: number }[];
 };
 
 export class ApiError extends Error {
@@ -134,12 +136,12 @@ export const api = {
     call<{ id: number; levels: Levels }>("PATCH", `/api/players/${id}`, patch),
   deletePlayer: (id: number) => call<void>("DELETE", `/api/players/${id}`),
   attempts: (playerId: number, limit = 200) => call<Attempt[]>("GET", `/api/players/${playerId}/attempts?limit=${limit}`),
-  next: (playerId: number, mode: Mode, hands: Hands, grade?: number) =>
-    call<{ level: number; excerpt: Excerpt }>("GET", `/api/next?${query({ player_id: playerId, mode, hands, grade })}`),
+  next: (playerId: number, mode: Mode, hands: Hands, length: Length, grade?: number) =>
+    call<{ level: number; excerpt: Excerpt }>("GET", `/api/next?${query({ player_id: playerId, mode, hands, length, grade })}`),
   recordAttempt: (playerId: number, excerptId: string, result: AttemptResult) =>
     call<LevelChange>("POST", "/api/attempts", { player_id: playerId, excerpt_id: excerptId, ...result }),
   excerpt: (id: string) => call<ExcerptDetail>("GET", `/api/excerpts/${encodeURIComponent(id)}`),
-  library: (params: { grade?: number; q?: string; source?: string; license_only?: boolean; sort?: string; order?: string; limit?: number; offset?: number }) =>
+  library: (params: { grade?: number; q?: string; source?: string; kind?: string; license_only?: boolean; sort?: string; order?: string; limit?: number; offset?: number }) =>
     call<{ total: number; rows: (Excerpt & { attempts: number })[] }>("GET", `/api/library?${query(params)}`),
   summary: () => call<Summary>("GET", "/api/admin/summary"),
 };
